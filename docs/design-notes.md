@@ -258,3 +258,29 @@ fewer workarounds.
   version of exactly this adapter. Tested with FT-891 and AH-4. Closed design,
   but proof that the approach works with native TUNE and on-screen status.
 - YO3HJV AH-4 tuning aid: opto-coupled START/KEY box for any radio.
+
+## 7. Measuring tune power: Pecab PE120-B bridge
+
+Photos in `docs/images/pecab-pe120b-*.jpg`. Label: Power/SWR Bridge, 1-150 MHz,
+1-100 W, directivity >= 30 dB, insertion loss <= 0.2 dB, Z0 = 50 ohm, SO-239
+both ends, arrow TX/RX to Antenna. Inside: "Dual directional coupler
+091A/1.13-0.8", coupling 15 dB, max 100 W. Two sense boards, FWD-Sense (J1)
+and REFL-Sense (J2), each with a diode detector, RF bypass caps (1 nF) and a
+trimmer, with "+" marked DC outputs. The grey cable carries FWD (blue) and
+REFL (red) DC out, originally to a meter unit.
+
+So the sense outputs are rectified DC, not RF. Expected levels: at 100 W the
+coupled port sees 100 W - 15 dB = 3.2 W, about 18 V peak; at 10 W about 5.6 V
+peak; at 1 W about 1.8 V peak. Diode detectors are square-law below roughly
+1 V and linear above, so the curve must be calibrated, not computed.
+
+Plan:
+1. Calibrate: radio into dummy load through the bridge, CW carrier at
+   PC005/010/020/050/100, read FWD DC with a multimeter. Cross-check against
+   the radio's PO meter (`RM5;`). Five points on each band of interest.
+2. Feed FWD into a Teensy ADC pin through a 47 k / 10 k divider (18 V -> 3.2 V)
+   with a 5.1 V zener or Schottky clamp to +5 V. Sample at 1 kHz during
+   TX GND low and log min/max/mean every 10 ms. That gives the tune carrier
+   power versus time, including any overshoot at key-on.
+3. REFL into a second ADC pin the same way gives SWR during the tune when
+   the AH-4 is connected later.
