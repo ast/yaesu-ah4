@@ -1,0 +1,6 @@
+.direnv/
+.arduino15/
+result
+build/
+logs/
+__pycache__/
