@@ -258,6 +258,7 @@ static float adcVolts(uint8_t pin) {
   return analogRead(pin) * (ADC_VREF / 1023.0f);
 }
 static float voltsToWatts(float v) {
+  if (v < 0.02f) return 0;          // below the detector knee: call it zero
   float s = v / calK + calC;
   return s > 0 ? s * s : 0;
 }
@@ -273,7 +274,7 @@ static void servicePower() {
   float pf = voltsToWatts(vf);
   float pr = voltsToWatts(vr);
   float swr = 0;
-  if (pf > 0.5f && pr >= 0) {
+  if (pf > 0.5f && pr > 0) {
     float rho = sqrt(pr / pf);
     if (rho < 0.999f) swr = (1 + rho) / (1 - rho);
     else swr = 99;

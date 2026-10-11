@@ -314,3 +314,50 @@ Consequences:
   moot at these levels; the AVR's internal diodes cover any surprise.
 - Firmware samples both channels every 10 ms whenever TX GND is low (or when
   forced on) and logs `PWR <fwdV> <reflV> <fwdW> <swr>`.
+
+## 8. Bench results, FT-891 with the Teensy emulator (2026-10-11)
+
+Setup: Teensy 2.0 emulator on TUN/LIN, radio driven over CAT at 4800
+(`PS1;` over USB does not wake the FT-891, `PS0;` does turn it off), dummy
+load through the Pecab bridge, CW mode, 14.02 MHz. Raw logs in
+`logs/session.log` on shack.
+
+### Power-on (menu 16-15 = EXTERNAL, SENSE grounded)
+
+- RESET (DIN 7) is low while the radio is off and also while it is on but
+  has not registered a tuner. It goes high at power-up when SENSE is
+  grounded. The radio refuses `AC001;` with `?` until that power-up.
+- Emulator sent `A0` 200 ms and `A1` 1000 ms after RESET rose. 14 ms after
+  that `A1` the radio began: `FF E0 01 00`, `FF E0 00 01`, `FF F1 00 00`,
+  each `FF` 50 ms before its three bytes, commands 100 ms apart. It did not
+  wait for `A0`/`A1` between them.
+
+### Tuner on/off and frequency
+
+- `AC001;` -> `FF F0 <bcd>`, `AC000;` -> `FF F1 00 00`.
+- Frequency is truncated to 10 kHz (14.02894 MHz -> `14 02`). `F0` is
+  re-sent only when the 10 kHz value changes, within ~130 ms of the change.
+
+### Tune (`AC002;`), emulator replying A0 after 10 ms
+
+```
+t=0        radio: FF F1 00 00
++10 ms     emu:   A0
++800 ms    emu:   A1
++850 ms    TX GND low, carrier on            <- radio waits for A1 before keying
++1300 ms   radio: FF F2 <bcd>                <- ~480 ms after key-on
++1310 ms   emu:   A0
++1310+T    emu:   A1  (T = simulated hunt)
++100 ms    TX GND high, carrier off
+```
+
+- The carrier is continuous from before `F2` until 100 ms after `A1`. There
+  is no separate SWR test carrier afterwards; the radio measures during the
+  last part of the carrier. `AC;` reads `AC001` afterwards.
+- Tune carrier power follows the PC setting: PC005 gave 5.1 W steady, 5.7 W
+  in the first 30 ms; PC010 gave 10.2 W, 11.2 W peak. Settled within
+  100 ms. PC010 is right in the AH-4's 5-15 W window.
+- `A1 A2` (fail) and `A0 B0 .. A1` (no carrier): radio unkeys 100 ms after
+  `A1` either way, `AC` stays 001. Display not observed yet.
+- No reply at all: radio sent `F1` and never keyed. A late `A0 A1` after
+  21 s was ignored, the radio had given up silently; `AC` still read 001.
