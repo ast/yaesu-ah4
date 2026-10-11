@@ -361,3 +361,39 @@ t=0        radio: FF F1 00 00
   `A1` either way, `AC` stays 001. Display not observed yet.
 - No reply at all: radio sent `F1` and never keyed. A late `A0 A1` after
   21 s was ignored, the radio had given up silently; `AC` still read 001.
+
+### Timing limits (measured with the emulator)
+
+| What | Result |
+|---|---|
+| `A1` after `F1` | accepted at 2.5 s, rejected at 3 s: radio cancels the tune, `AC` reads 000, no carrier |
+| `A0` after `F1` | not needed (A1 alone works) |
+| `A0` after `F2` | must arrive within ~50 ms. At 100 ms and later the radio drops the carrier 54 ms after `F2` but still accepts the later `A1` |
+| `A1` after `F2` | 15 s hunt accepted, carrier held the whole time (15.6 s). Limit not found |
+| `F2` after key-on | 440-500 ms |
+| unkey after `A1` | 100-110 ms |
+| cancel (`AC000;` mid-tune) | unkeys within 70 ms, sends `FF F1 00 00`, tuner off. Nothing else |
+| TX INH | ignored during a tune, whether asserted before `F1` or after `F2` |
+| CAT during tune | `AC;` -> `AC002`, `TX;` -> `TX2` |
+
+### What this means for the adapter
+
+- Reply `A0` to every command immediately (well under 50 ms). Hardware UART,
+  not a slow poll loop.
+- On `F1`: 70 ms START pulse to put the AH-4 in bypass, then `A1`. Budget
+  is 2.5 s, so there is room to wait for the pulse and settle.
+- On `F2`: `A0` at once, then START low. The carrier is already on (since
+  ~0.5 s before `F2`), so the AH-4 sees RF when it boots and asserts KEY
+  ~300 ms later; release START 250 ms after KEY. Wait for KEY to go high,
+  classify (clean = ok, 20 ms blip + 200 ms = fail), send `A1` (+`A2`). The
+  radio will hold the carrier for at least 15 s, which covers the AH-4's
+  worst case.
+- The AH-4 measures its own carrier window; the radio's 5.7 W / 11 W
+  key-on peak settles in 100 ms, long before the AH-4 looks. Tune with the
+  radio's PC set to 10 W; the tune carrier follows the PC setting.
+- TX INH cannot be used to sequence the carrier. Do not bother wiring it in
+  the adapter, except perhaps as a safety pull-down when the AH-4 relays
+  are switching (unverified whether the radio honours it outside tuning).
+- If the AH-4 never asserts KEY, send `B0` then `A1` within a couple of
+  seconds; the radio unkeys on `A1`.
+- Cancel from the radio arrives as `F1`: pulse START (reset) and `A1`.
