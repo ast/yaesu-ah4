@@ -22,21 +22,32 @@ NixOS needs the Teensy udev rules for flashing without root:
 `services.udev.packages = [ pkgs.teensy-udev-rules ];` and your user in
 `dialout`.
 
-### Wiring Teensy 2.0 to the TUN/LIN jack (8-pin mini-DIN)
+### Wiring Teensy 2.0 (silkscreen labels are AVR port pins)
 
-| Teensy pin | DIN pin | Signal | Notes |
-|---|---|---|---|
-| 7 (RX1) | 4 | TX D | radio to tuner serial, 5 V TTL |
-| 8 (TX1) | 5 | RX D | tuner to radio serial, 270 ohm in series |
-| 0 | 2 | TX GND | low while radio transmits |
-| 1 | 7 | RESET | high while radio is on, 10 k in series |
-| 2 | 8 | TX INH | open drain from the Teensy, released at boot |
-| GND | 3, 6 | GND, SENSE | SENSE strapped to GND = "tuner present" |
-| VIN | 1 | +13.5 V | optional, else power the Teensy from USB |
+| Teensy pin | Silkscreen | Goes to | Signal | Note |
+|---|---|---|---|---|
+| 7 (RX1) | D2 | DIN 4 | TX D | radio to tuner serial, direct |
+| 8 (TX1) | D3 | DIN 5 | RX D | tuner to radio serial, 270 ohm in series |
+| 0 | B0 | DIN 2 | TX GND | low while radio transmits, direct |
+| 1 | B1 | DIN 7 | RESET | high while radio is on, 10 k in series |
+| 2 | B2 | DIN 8 | TX INH | open drain from the Teensy, direct |
+| 3 | B3 | AH-4 START | later | gate of a 2N7000, leave open for now |
+| 4 | B7 | AH-4 KEY | later | leave open for now |
+| 21 (A0) | F0 | bridge FWD, blue | forward sense | 1 k in series, 100 nF pin to GND |
+| 20 (A1) | F1 | bridge REFL, red | reflected sense | 1 k in series, 100 nF pin to GND |
+| GND | GND | DIN 3, DIN 6, bridge shield | ground, SENSE | SENSE to GND = "tuner present" |
 
-Mini-DIN pin numbering as in the FT-891 manual page 111 and the FC-50
-schematic. Radio menu 16-15 TUNER SELECT must be EXTERNAL and the radio
-powered up with SENSE grounded.
+Do not connect DIN pin 1 (+13.5 V) to anything. The Teensy 2.0 has no
+regulator: power it from USB only.
+
+Mini-DIN numbering as in the FT-891 manual page 111 and the FC-50 schematic
+(looking into the radio's jack). Radio menu 16-15 TUNER SELECT must be
+EXTERNAL and the radio powered up with SENSE grounded.
+
+Full Teensy 2.0 map for reference (Arduino pin = port bit): 0=B0 1=B1 2=B2
+3=B3 4=B7 5=D0 6=D1 7=D2(RX1) 8=D3(TX1) 9=C6 10=C7 11=D6(LED) 12=D7 13=B4
+14=B5 15=B6 16=F7(A5) 17=F6(A4) 18=F5(A3) 19=F4(A2) 20=F1(A1) 21=F0(A0)
+22=D4 23=D5 24=E6.
 
 CAT: FT-891 USB jack, CP210x "Enhanced" port shows up as `/dev/ttyUSB*`.
 Set menu 05-06 CAT RATE to 38400 (3) or pass `--cat-baud`.

@@ -7,19 +7,18 @@
 //
 // Build: arduino-cli compile --fqbn teensy:avr:teensy2:usb=serial firmware/tuner_emu
 //
-// Wiring (Teensy 2.0 pin numbers, 8-pin mini-DIN TUN/LIN pin in brackets):
-//   7  RX1  <- [4] TX D     radio to tuner serial, 5 V TTL
-//   8  TX1  -> [5] RX D     tuner to radio serial, 5 V TTL, 270 ohm in series
-//   0       <- [2] TX GND   low while radio transmits (internal pull-up)
-//   1       <- [7] RESET    high while radio is on (10 k in series)
-//   2       -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
-//   3       -> AH-4 START   via 2N7000 (gate), not used yet
-//   4       <- AH-4 KEY     10 k pull-up to 5 V, not used yet
-//   21 (A0) <- bridge FWD sense (blue), 1 k series + 100 nF to GND, 2.56 V ref
-//   20 (A1) <- bridge REFL sense (red), same
-//   GND     -- [3] GND  and [6] SENSE (strap SENSE to GND so the radio sees a tuner)
-//   VIN     -- [1] +13.5 V  only if you want the Teensy powered from the radio;
-//                           otherwise leave it out and power from USB.
+// Wiring (Teensy 2.0 pin number / silkscreen, 8-pin mini-DIN TUN/LIN pin in brackets):
+//   7  D2 RX1 <- [4] TX D     radio to tuner serial, 5 V TTL
+//   8  D3 TX1 -> [5] RX D     tuner to radio serial, 5 V TTL, 270 ohm in series
+//   0  B0     <- [2] TX GND   low while radio transmits (internal pull-up)
+//   1  B1     <- [7] RESET    high while radio is on (10 k in series)
+//   2  B2     -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
+//   3  B3     -> AH-4 START   via 2N7000 (gate), not used yet
+//   4  B7     <- AH-4 KEY     10 k pull-up to 5 V, not used yet
+//   21 F0 A0  <- bridge FWD sense (blue), 1 k series + 100 nF to GND, 2.56 V ref
+//   20 F1 A1  <- bridge REFL sense (red), same
+//   GND       -- [3] GND and [6] SENSE (strap SENSE to GND so the radio sees a tuner)
+//   Leave [1] +13.5 V unconnected; the Teensy 2.0 has no regulator, power it from USB.
 //
 // Host protocol (USB serial, 115200, line based):
 //   log lines:   "<us> <EVENT> ..."   microseconds since boot
