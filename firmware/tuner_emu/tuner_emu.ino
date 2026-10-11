@@ -11,7 +11,7 @@
 //   7  D2 RX1 <- [4] TX D     radio to tuner serial, 5 V TTL
 //   8  D3 TX1 -> [5] RX D     tuner to radio serial, 5 V TTL, 270 ohm in series
 //   0  B0     <- [2] TX GND   low while radio transmits (internal pull-up)
-//   1  B1     <- [7] RESET    high while radio is on (10 k in series)
+//   1  B1     <- [7] RESET    radio pulls low to reset, else floats: internal pull-up (10 k in series)
 //   2  B2     -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
 //   3  B3     -> AH-4 START   via 2N7000 (gate), not used yet
 //   4  B7     <- AH-4 KEY     10 k pull-up to 5 V, not used yet
@@ -235,6 +235,7 @@ static void serviceLines() {
     Serial.println(v);
     if (rose && cfg.bootSeq) {
       uint32_t t = millis();
+      clearPending();
       schedule(t + 200, 0xA0);
       schedule(t + 1000, 0xA1);
       logNote("radio on: boot sequence scheduled");
@@ -419,7 +420,7 @@ static void serviceHost() {
 // ---------------------------------------------------------------- setup/loop
 void setup() {
   pinMode(PIN_TXGND, INPUT_PULLUP);
-  pinMode(PIN_RESET, INPUT);
+  pinMode(PIN_RESET, INPUT_PULLUP);  // radio only pulls it low; FC-50 has a 47 k pull-up
   pinMode(PIN_TXINH, INPUT);        // released
   pinMode(PIN_START, OUTPUT);
   digitalWrite(PIN_START, LOW);     // 2N7000 off = START released

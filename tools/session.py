@@ -57,11 +57,27 @@ def main():
 
     stop = threading.Event()
 
+    def reopen(port, name):
+        """Block until the port can be opened again (USB re-enumeration)."""
+        while not stop.is_set():
+            try:
+                port.close()
+                port.open()
+                log("NOTE", f"{name} port reopened")
+                return
+            except serial.SerialException:
+                time.sleep(1)
+
     def emu_reader():
         assert emu is not None
         buf = b""
         while not stop.is_set():
-            data = emu.read(256)
+            try:
+                data = emu.read(256)
+            except (serial.SerialException, OSError) as e:
+                log("NOTE", f"emu port error: {e}")
+                reopen(emu, "emu")
+                continue
             if not data:
                 continue
             buf += data
@@ -73,7 +89,12 @@ def main():
         assert cat is not None
         buf = b""
         while not stop.is_set():
-            data = cat.read(256)
+            try:
+                data = cat.read(256)
+            except (serial.SerialException, OSError) as e:
+                log("NOTE", f"cat port error: {e}")
+                reopen(cat, "cat")
+                continue
             if not data:
                 continue
             buf += data
@@ -102,12 +123,18 @@ def main():
                 if not line:
                     continue
                 verb, _, rest = line.partition(" ")
-                if verb == "cat" and cat:
-                    cat.write(rest.encode("ascii"))
-                    log("CAT>", rest)
-                elif verb == "emu" and emu:
-                    emu.write((rest + "\n").encode("ascii"))
-                    log("EMU>", rest)
+                try:
+                    if verb == "cat" and cat:
+                        cat.write(rest.encode("ascii"))
+                        log("CAT>", rest)
+                    elif verb == "emu" and emu:
+                        emu.write((rest + "\n").encode("ascii"))
+                        log("EMU>", rest)
+                except (serial.SerialException, OSError) as e:
+                    log("NOTE", f"write failed ({verb}): {e}")
+                    continue
+                if verb in ("cat", "emu"):
+                    continue
                 elif verb == "note":
                     log("NOTE", rest)
                 elif verb == "sleep":
