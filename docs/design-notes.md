@@ -284,3 +284,33 @@ Plan:
    power versus time, including any overshoot at key-on.
 3. REFL into a second ADC pin the same way gives SWR during the tune when
    the AH-4 is connected later.
+
+### Measured forward calibration (2026-10-11, into dummy load, ~14 MHz)
+
+`coupler.csv`, FWD sense (blue wire) DC voltage with a multimeter, radio set
+to each power level by its PC setting:
+
+| W | 5 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| V | 0.154 | 0.290 | 0.490 | 0.616 | 0.751 | 0.870 | 0.953 | 1.044 | 1.127 | 1.217 | 1.299 |
+
+Far lower than the raw detector estimate, so the trimmer divides the detected
+voltage down for the original meter. The curve fits a linear detector with a
+diode-drop offset to about 1 % rms:
+
+    V = 0.146 * (sqrt(P) - 1.18)        P = (V / 0.146 + 1.18)^2
+
+A pure power law or a square-law blend fit worse. The model is only valid
+above about 2 W (it reaches 0 V at 1.4 W); below that the detector is
+square-law, which does not matter for the 5-15 W question. Accuracy is
+limited by the radio's own power setting, not the fit.
+
+Consequences:
+- No divider. FWD and REFL go straight to Teensy ADC pins with the internal
+  2.56 V reference: 1 count = 2.5 mV, 5 W = 61 counts, 10 W = 116, 15 W = 152,
+  100 W = 519. Around 10 W one count is about 0.1 W.
+- Add 100 nF from each ADC pin to ground (the detector output impedance is
+  unknown and probably high) and a 1 k series resistor. The 5 V clamp diode is
+  moot at these levels; the AVR's internal diodes cover any surprise.
+- Firmware samples both channels every 10 ms whenever TX GND is low (or when
+  forced on) and logs `PWR <fwdV> <reflV> <fwdW> <swr>`.

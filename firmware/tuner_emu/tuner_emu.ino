@@ -15,6 +15,8 @@
 //   2       -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
 //   3       -> AH-4 START   via 2N7000 (gate), not used yet
 //   4       <- AH-4 KEY     10 k pull-up to 5 V, not used yet
+//   21 (A0) <- bridge FWD sense (blue), 1 k series + 100 nF to GND, 2.56 V ref
+//   20 (A1) <- bridge REFL sense (red), same
 //   GND     -- [3] GND  and [6] SENSE (strap SENSE to GND so the radio sees a tuner)
 //   VIN     -- [1] +13.5 V  only if you want the Teensy powered from the radio;
 //                           otherwise leave it out and power from USB.
@@ -31,6 +33,14 @@ static const uint8_t PIN_TXINH = 2;
 static const uint8_t PIN_START = 3;
 static const uint8_t PIN_KEY   = 4;
 static const uint8_t PIN_LED   = 11;
+static const uint8_t PIN_FWD   = A0;   // Teensy 2.0 pin 21
+static const uint8_t PIN_REFL  = A1;   // Teensy 2.0 pin 20
+
+// Pecab PE120-B forward sense calibration, see docs/design-notes.md section 7:
+//   V = CAL_K * (sqrt(P) - CAL_C)   ->   P = (V / CAL_K + CAL_C)^2
+static float calK = 0.146f;
+static float calC = 1.18f;
+static const float ADC_VREF = 2.56f;   // internal reference
 
 // ---------------------------------------------------------------- settings
 struct Settings {
@@ -41,6 +51,8 @@ struct Settings {
   uint16_t tuneTime    = 3000;   // ms after A0 before A1 for F2 (simulated hunt)
   uint8_t  tuneResult  = 0;      // 0 = ok (A1), 1 = fail (A1 A2), 2 = no carrier (B0 .. A1)
   bool     inhDuringTune = false;// hold TX INH low from F2 until "inh 0" or tuneTime/2
+  uint8_t  pwrMode     = 1;      // 0 = off, 1 = while TX GND low, 2 = always
+  uint16_t pwrPeriod   = 10;     // ms between PWR samples
 } cfg;
 
 // ---------------------------------------------------------------- logging
@@ -238,9 +250,46 @@ static void serviceLines() {
   }
 }
 
+// ---------------------------------------------------------------- power
+static uint32_t lastPwrMs = 0;
+
+static float adcVolts(uint8_t pin) {
+  (void)analogRead(pin);                // settle mux after channel change
+  return analogRead(pin) * (ADC_VREF / 1023.0f);
+}
+static float voltsToWatts(float v) {
+  float s = v / calK + calC;
+  return s > 0 ? s * s : 0;
+}
+
+static void servicePower() {
+  if (cfg.pwrMode == 0) return;
+  if (cfg.pwrMode == 1 && digitalRead(PIN_TXGND) == HIGH) return;
+  uint32_t now = millis();
+  if (now - lastPwrMs < cfg.pwrPeriod) return;
+  lastPwrMs = now;
+  float vf = adcVolts(PIN_FWD);
+  float vr = adcVolts(PIN_REFL);
+  float pf = voltsToWatts(vf);
+  float pr = voltsToWatts(vr);
+  float swr = 0;
+  if (pf > 0.5f && pr >= 0) {
+    float rho = sqrt(pr / pf);
+    if (rho < 0.999f) swr = (1 + rho) / (1 - rho);
+    else swr = 99;
+  }
+  logTs();
+  Serial.print(F("PWR "));
+  Serial.print(vf, 4); Serial.print(' ');
+  Serial.print(vr, 4); Serial.print(' ');
+  Serial.print(pf, 2); Serial.print(' ');
+  Serial.println(swr, 2);
+}
+
 // ---------------------------------------------------------------- host commands
 static char hostLine[64];
 static uint8_t hostLen = 0;
+static uint32_t hostLastMs = 0;
 
 static int hexVal(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -265,6 +314,10 @@ static void printStatus() {
   Serial.print(cfg.tuneResult);
   Serial.print(F(" inhtune="));
   Serial.print(cfg.inhDuringTune);
+  Serial.print(F(" pwr="));
+  Serial.print(cfg.pwrMode);
+  Serial.print(F("/"));
+  Serial.print(cfg.pwrPeriod);
   Serial.print(F(" txgnd="));
   Serial.print(digitalRead(PIN_TXGND));
   Serial.print(F(" reset="));
@@ -318,6 +371,23 @@ static void handleHostLine(char *line) {
     // drive AH-4 START via 2N7000: pin HIGH = line pulled low (asserted)
     digitalWrite(PIN_START, atoi(arg) ? HIGH : LOW);
     logTs(); Serial.print(F("START ")); Serial.println(atoi(arg));
+  } else if (!strcmp(cmd, "pwr") && arg) {
+    // pwr <0|1|2> [period_ms]
+    cfg.pwrMode = atoi(arg);
+    char *per = strtok(nullptr, " \r\n");
+    if (per) cfg.pwrPeriod = atoi(per);
+    printStatus();
+  } else if (!strcmp(cmd, "cal") && arg) {
+    // cal <k> <c>
+    char *c2 = strtok(nullptr, " \r\n");
+    calK = atof(arg);
+    if (c2) calC = atof(c2);
+    logTs(); Serial.print(F("CAL k=")); Serial.print(calK, 4);
+    Serial.print(F(" c=")); Serial.println(calC, 3);
+  } else if (!strcmp(cmd, "adc")) {
+    // one-shot raw reading
+    logTs(); Serial.print(F("ADC fwd=")); Serial.print(adcVolts(PIN_FWD), 4);
+    Serial.print(F(" refl=")); Serial.println(adcVolts(PIN_REFL), 4);
   } else if (!strcmp(cmd, "clear")) {
     clearPending();
     logNote("pending cleared");
@@ -326,13 +396,15 @@ static void handleHostLine(char *line) {
     while (arg) { Serial.print(arg); Serial.print(' '); arg = strtok(nullptr, " \r\n"); }
     Serial.println();
   } else {
-    logNote("commands: ? | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | clear | note ...");
+    logNote("commands: ? | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | pwr 0/1/2 [ms] | cal <k> <c> | adc | clear | note ...");
   }
 }
 
 static void serviceHost() {
+  if (hostLen && millis() - hostLastMs > 1000) hostLen = 0;   // stale partial line
   while (Serial.available()) {
     char c = Serial.read();
+    hostLastMs = millis();
     if (c == '\n' || c == '\r') {
       if (hostLen) {
         hostLine[hostLen] = 0;
@@ -354,6 +426,7 @@ void setup() {
   digitalWrite(PIN_START, LOW);     // 2N7000 off = START released
   pinMode(PIN_KEY, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
+  analogReference(INTERNAL);        // 2.56 V on ATmega32U4
 
   Serial.begin(115200);
   Serial1.begin(4800);              // 8N1 default
@@ -368,5 +441,6 @@ void loop() {
   serviceRadioRx();
   serviceLines();
   servicePending();
+  servicePower();
   serviceHost();
 }
