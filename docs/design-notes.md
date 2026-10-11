@@ -373,7 +373,7 @@ t=0        radio: FF F1 00 00
 | `F2` after key-on | 440-500 ms |
 | unkey after `A1` | 100-110 ms |
 | cancel (`AC000;` mid-tune) | unkeys within 70 ms, sends `FF F1 00 00`, tuner off. Nothing else |
-| TX INH | ignored in EXTERNAL mode: during a tune (asserted before `F1` or after `F2`) and for CAT PTT (`TX1;` keys with the line low, and pulling it low while keyed does not unkey). Wiring to DIN 8 / Teensy B2 verified by Albin |
+| TX INH | ignored in EXTERNAL mode: during a tune (asserted before `F1` or after `F2`) and for CAT PTT (`TX1;` keys with the line low, and pulling it low while keyed does not unkey). Wiring to DIN 8 / Teensy B2 verified by Albin; the line measures 0 V with the Teensy released, so the radio provides no pull-up in this mode |
 | CAT during tune | `AC;` -> `AC002`, `TX;` -> `TX2` |
 
 ### What this means for the adapter
