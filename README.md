@@ -1,103 +1,104 @@
 # yaesu-ah4
 
-Adapter to run an Icom AH-4 antenna tuner from a Yaesu FT-891's TUN/LIN jack
-as if it were a Yaesu FC-40. See `docs/design-notes.md` for the protocols and
-the plan.
+Adapter that lets an Icom AH-4 automatic antenna tuner work natively with a
+Yaesu FT-891: press TUNE on the radio, the AH-4 tunes, the radio shows the
+result. The radio believes it is talking to a Yaesu FC-40 on its TUN/LIN
+jack; the adapter speaks that protocol and drives the AH-4's START/KEY lines.
 
-## Current stage: working adapter on the bench
+Status: working on the bench with a real antenna (2026-10-12). Everything
+measured about the radio and the tuner is in `docs/design-notes.md`.
 
-The Teensy boots as the FT-891 to AH-4 adapter in mode 2: the AH-4 tune
-cycle starts on the radio's `F1`, so the radio's raw-SWR pre-check looks
-into the AH-4's bridge and passes even on antennas the radio would otherwise
-refuse (160 m on a short wire tuned fine this way). `emu mode 1` is the
-classic sequence (tune on `F2`, RF gated with TX INH until the AH-4 keys),
-`emu mode 0` the FC-40 emulator used to characterise the radio. Findings
-are in `docs/design-notes.md`, sections 8 to 10.
+## How it works
 
-## Protocol bench
+The FT-891 refuses to tune if the raw SWR it measures before the tune is too
+high, which would rule out antennas the AH-4 can match. The adapter therefore
+starts the AH-4 cycle on the radio's first command (`F1`): by the time the
+radio measures, the AH-4 has its matching bridge in line and the radio sees a
+good match. The tune command (`F2`) arrives while the AH-4 is already hunting;
+the adapter reports the result when the AH-4 releases KEY. Section 3 of the
+design notes is the full specification.
 
-A Teensy 2.0 on the TUN/LIN jack pretends to be an FC-40 and logs everything
-the radio does, while the radio is driven over CAT into a dummy load.
+## Hardware
 
-### Toolchain
+Teensy 2.0 (ATmega32U4), one N-MOSFET, a few resistors. Pin numbers are the
+Teensy's; the silkscreen prints the AVR port pin.
+
+| Teensy | Silkscreen | Connects to | Note |
+|---|---|---|---|
+| 7 (RX1) | D2 | DIN 4, TX D | radio to tuner serial, 5 V TTL, direct |
+| 8 (TX1) | D3 | DIN 5, RX D | tuner to radio serial, 270 ohm in series |
+| 0 | B0 | DIN 2, TX GND | low while the radio transmits |
+| 1 | B1 | DIN 7, RESET | 10 k in series; high once the radio has registered the tuner |
+| 2 | B2 | DIN 8, TX INH | active high on the FT-891: driven high = RF off. Only used in the classic sequence |
+| GND | GND | DIN 3 GND, DIN 6 SENSE | SENSE must be a hard strap to ground |
+| 3 | B3 | BS170 / 2N7000 gate | 100 k gate to GND; source GND; drain to AH-4 START (white) |
+| 4 | B7 | AH-4 KEY (green) | 10 k pull-up to 5 V. Add an RC (1 k, 10 nF) against RF pickup |
+| 21 (A0) | F0 | bridge FWD sense | optional power logging; 1 k series, 68-100 nF to GND |
+| 20 (A1) | F1 | bridge REFL sense | same |
+
+DIN numbering as in the FT-891 manual page 111. Do not connect DIN pin 1
+(+13.5 V) to the Teensy: it has no regulator and runs from USB. The AH-4 gets
+its own 13.8 V with a 1.1 A polyfuse; grounds common.
+
+Radio: menu 16-15 TUNER SELECT = EXTERNAL, then power the radio off and on
+with the adapter connected. Set the CW power to 10 W (menu 16-03): the tune
+carrier follows the per-mode power setting and the AH-4 wants 5-15 W.
+
+## Firmware
 
 ```sh
-direnv allow                 # nix shell: arduino-cli, teensy-loader-cli, python+pyserial
+direnv allow                          # nix shell: arduino-cli, teensy-loader-cli, python+pyserial
 arduino-cli core install teensy:avr   # once; lands in .arduino15/ (gitignored)
-tools/build.sh tuner_emu              # compile
-tools/build.sh tuner_emu flash        # compile + flash (press the Teensy button)
+tools/build.sh                        # compile firmware/ah4_adapter
+tools/build.sh ah4_adapter flash      # compile and flash (press the Teensy button, or
+                                      # teensy_loader_cli -s soft-reboots a running sketch)
 ```
 
-NixOS needs the Teensy udev rules for flashing without root:
-`services.udev.packages = [ pkgs.teensy-udev-rules ];` and your user in
-`dialout`.
+On the shack Pi: `teensy_loader_cli --mcu=atmega32u4 -s -w -v build/ah4_adapter/ah4_adapter.ino.hex`
+with the Teensy udev rules installed.
 
-### Wiring Teensy 2.0 (silkscreen labels are AVR port pins)
+## Debugging from the Raspberry Pi
 
-| Teensy pin | Silkscreen | Goes to | Signal | Note |
-|---|---|---|---|---|
-| 7 (RX1) | D2 | DIN 4 | TX D | radio to tuner serial, direct |
-| 8 (TX1) | D3 | DIN 5 | RX D | tuner to radio serial, 270 ohm in series |
-| 0 | B0 | DIN 2 | TX GND | low while radio transmits, direct |
-| 1 | B1 | DIN 7 | RESET | high while radio is on, 10 k in series |
-| 2 | B2 | DIN 8 | TX INH | active HIGH on the FT-891: driven high = RF inhibited, input = released |
-| 3 | B3 | 2N7000 gate | AH-4 START | 100 k gate to GND, source to GND, drain to START (white). Pin high = START pulled low |
-| 4 | B7 | AH-4 KEY (green) | KEY | 10 k pull-up to Teensy VCC (5 V). Low = tuner keying |
-| GND | GND | AH-4 GND (black) | | common with the 13.8 V supply return |
-| 21 (A0) | F0 | bridge FWD, blue | forward sense | 1 k in series, 100 nF pin to GND |
-| 20 (A1) | F1 | bridge REFL, red | reflected sense | 1 k in series, 100 nF pin to GND |
-| 5 | D0 | DIN 6 | SENSE / BAND C | 1 k in series; firmware holds it low = "tuner present", floats it in LAMP mode |
-| GND | GND | DIN 3, bridge shield | ground | |
+The adapter logs every event over USB serial (115200) as
+`<micros> <EVENT> ...`:
 
-Do not connect DIN pin 1 (+13.5 V) to anything. The Teensy 2.0 has no
-regulator: power it from USB only.
+| Event | Meaning |
+|---|---|
+| `RX xx gap=us` | byte from the radio, gap since the previous byte |
+| `CMD ff op hi lo <name> [freq]` | decoded radio command |
+| `TX xx` | byte sent to the radio |
+| `TXGND 0/1`, `RESET 0/1` | radio control lines (0 = low) |
+| `KEY 0/1`, `START 0/1`, `INH 0/1/2` | AH-4 KEY (0 = asserted), START (1 = asserted), TX INH level |
+| `AH4 <STATE>` | tune state machine transitions |
+| `TUNE result=ok|fail|nokey key_ms= hunt_ms= f2_ms= total_ms=` | one line per tune cycle |
+| `PWR fwdV reflV fwdW swr` | bridge sample every 10 ms while transmitting |
+| `STATUS ...`, `NOTE ...` | settings and line states; free text |
 
-Mini-DIN numbering as in the FT-891 manual page 111 and the FC-50 schematic
-(looking into the radio's jack). Radio menu 16-15 TUNER SELECT must be
-EXTERNAL and the radio powered up with SENSE grounded.
+Commands (one per line): `?`, `f1start 0|1` (start the AH-4 on F1, default 1,
+or classic on F2), `f1a1 <ms>` (A1 delay after F1, default 100), `boot 0|1`,
+`pwr 0|1|2 [ms]`, `cal <k> <c>`, `adc`, `inh 0|1|2`, `start 0|1`, `reset`,
+`s <hex..>`, `abort`, `note <text>`.
 
-Full Teensy 2.0 map for reference (Arduino pin = port bit): 0=B0 1=B1 2=B2
-3=B3 4=B7 5=D0 6=D1 7=D2(RX1) 8=D3(TX1) 9=C6 10=C7 11=D6(LED) 12=D7 13=B4
-14=B5 15=B6 16=F7(A5) 17=F6(A4) 18=F5(A3) 19=F4(A2) 20=F1(A1) 21=F0(A0)
-22=D4 23=D5 24=E6.
-
-CAT: FT-891 USB jack, CP210x "Enhanced" port shows up as `/dev/ttyUSB*`.
-Set menu 05-06 CAT RATE to 38400 (3) or pass `--cat-baud`.
-
-### Running a session
+`tools/session.py` owns the Teensy port and the radio's CAT port, merges both
+into one timestamped `logs/session.log`, and takes commands from a FIFO:
 
 ```sh
-tools/session.py --emu /dev/ttyACM0 --cat /dev/ttyUSB1   # keeps running
-# other shell:
-echo 'cat ID;'        > logs/cmd      # expect CAT< ID0650;
-echo 'cat EX1615;'    > logs/cmd      # tuner select, expect EX16151;
-echo 'cat PC010;'     > logs/cmd      # 10 W
-echo 'cat AC002;'     > logs/cmd      # start tuning
-echo 'emu ?'          > logs/cmd      # emulator status
-echo 'emu result fail'> logs/cmd      # next tune answers A1 A2
+tools/session.py --emu /dev/serial/by-id/usb-Teensyduino_USB_Serial_12345-if00 \
+                 --cat /dev/serial/by-id/usb-Silicon_Labs_CP2105_*-if00-port0 --cat-baud 4800
+echo 'cat AC002;' > logs/cmd     # tune via CAT
+echo 'emu ?'      > logs/cmd     # adapter status
+echo 'note 20 m'  > logs/cmd     # marker
 tail -f logs/session.log
 ```
 
-Emulator commands (send with `emu ...`): `?`, `lamp 0|1` (float DIN 4-7 and
-log band data for menu 16-15 = LAMP), `mode 0|1` (simulate / bridge a real
-AH-4), `reset` (70 ms START pulse), `s a0 a1` (raw bytes to the radio), `auto 0|1`, `boot [0|1]`, `a0 <ms>`, `a1 <ms>`, `tune <ms>`,
-`result ok|fail|b0`, `inhtune 0|1 [ms]`, `inh 0|1|2` (release / low / high), `start 0|1`, `clear`,
-`note <text>`.
+It reopens either port after a USB hiccup, and reopens the CAT port when a
+command gets no reply for 3 s (RF into the CP2105 stalls it). `PS1;` over
+USB does not wake an FT-891, so leave the radio on.
 
-### Experiments to run
+## Power calibration
 
-1. Power-on: radio off, Teensy running, turn radio on. Capture RESET edge,
-   boot `A0`/`A1`, the `E0` pair and `F0`/`F1`.
-2. `AC001;` / `AC000;` tuner on/off: which commands, and does the radio wait
-   for `A0`/`A1`?
-3. VFO steps via `FA...;`: confirm `F0` every 10 kHz, only when enabled.
-4. `AC002;` tune, result ok: full byte timing, TX GND edges, how long the
-   radio keeps the carrier, when it measures SWR. Read `RM6;` during.
-5. Same with `result fail`, `result b0`, and with no reply at all
-   (`auto 0`): radio timeout and display.
-6. Tune carrier power vs `PC005;` `PC010;` `PC050;` `PC100;` with a
-   wattmeter on the dummy load.
-7. `inhtune 1`: does TX INH stop the carrier, and does it resume on release?
-8. Long `tune 15000`: radio patience.
-9. Cancel a tune (press MULTI or `AC000;` mid-tune): what is sent.
-10. Band change with tuner enabled: what is sent.
+`coupler.csv` is the Pecab PE120-B forward sense voltage against power at
+14 MHz into a dummy load; the fit `V = 0.146 (sqrt(P) - 1.18)` is built into
+the firmware (`cal` changes it at runtime). The detector response scales with
+frequency, so the watt numbers are only right near 14 MHz until a per-band
+table exists. The AH-4's own power check is the number that matters.

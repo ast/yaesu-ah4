@@ -148,45 +148,61 @@ present.
 The AH-4 does not start on RF alone. Without START it stays in whatever
 state it latched.
 
-## 3. Adapter behaviour (updated 2026-10-12 after the bench, see section 8)
+## 3. Adapter behaviour (final, as implemented in firmware/ah4_adapter)
 
 The adapter plays "FC-40" towards the radio and "Icom radio" towards the
-AH-4. Mapping:
+AH-4. All numbers below were measured on the bench (sections 8-10).
 
 | Radio sends | Adapter does | Adapter replies |
 |---|---|---|
-| power-on | wait 200 ms, send `A0`, 800 ms, `A1` | |
-| `E0 xx xx` | nothing | `A0`, then `A1` |
-| `F0 <freq>` | nothing (AH-4 keeps its latched match; it measures frequency itself) | `A0`, then `A1` |
-| `F1 00 00` | 70 ms START pulse: AH-4 to bypass. Matches the radio's intent (bypass, then measure raw SWR) | `A0`, then `A1` after the pulse |
-| `F2 <freq>` | `A0` within 50 ms, TX INH high, START low; on KEY low release TX INH (RF reaches the AH-4 only now), release START 250 ms later; run the state machine below | `A0` at once, `A1` on KEY release, `A2` after `A1` on failure, `B0` before `A1` on timeout waiting for KEY |
+| power-on (RESET rises) | nothing | `A0` after 200 ms, `A1` after 1000 ms |
+| `E0 xx xx`, `F0 <freq>` | nothing; the AH-4 measures frequency itself and keeps its latched match | `A0` at once, `A1` after 300 ms |
+| `F1 00 00` | START low (AH-4 cycle starts) | `A0` at once, `A1` after 100 ms |
+| `F2 <freq>` | cycle is already running; note the time | `A0` at once, then the result when the AH-4 finishes |
+| cancel or tuner off | arrives as `F1`: a new cycle starts; with no carrier the AH-4 aborts into bypass by itself | as `F1` |
 
-Tune state machine on `F2`:
+Tune cycle (`startOnF1`, the default):
 
 ```
-IDLE --F2--> ACK: send A0; START=low; t=0
-ACK --KEY low--> KEYED: (radio is already transmitting; optional: release TX_INH here)
-ACK --t>1000ms--> FAIL_NOKEY: START=high; send B0, A1; -> IDLE
-KEYED --t>=560ms or 250ms after KEY--> HUNT: START=high
-HUNT --KEY high--> SETTLE: t2=0
-SETTLE --KEY low within 100ms--> FAILING: wait for KEY high; send A1 then A2; -> IDLE
-SETTLE --t2>100ms, KEY still high--> OK: send A1; -> IDLE
-HUNT --t>16s--> TIMEOUT: START 70ms pulse (bypass); send A1, A2; -> IDLE
++0 ms    F1          A0, START low
++100     A1                                  (radio keys ~50 ms later)
++345     AH-4 KEY    bridge in line; AH-4 checks 5-15 W: carrier has been on ~200 ms
++595     START released (250 ms after KEY)
++600     F2          A0 only, cycle continues (F2 may arrive before START release)
+hunt     0.3-3.3 s measured
+KEY high 100 ms settle: clean -> A1 (ok); blip within 100 ms then low again -> wait, A1 A2 (fail)
+no KEY within 1.5 s -> B0 then A1 (no key); hunt over 16 s -> reset pulse, A1 A2
 ```
 
-Notes:
+If the AH-4 finishes before `F2` arrives, the result is parked and sent
+right after `F2`'s `A0`. The radio unkeys 100 ms after `A1` and does its own
+SWR check in that window; on a failure the AH-4 is in bypass by then, so
+the radio shows the raw SWR.
 
-- TX INH is ACTIVE HIGH on the FT-891 and gates only the RF (section 8).
-  Drive it high from `F2` until the AH-4 asserts KEY, then release. The
-  radio keeps its sequence either way, so this is optional but keeps RF off
-  the AH-4 while its relays switch, as an Icom radio would.
-- TX GND (pin 2) is worth reading as an input anyway: it tells the adapter
-  when the radio is actually transmitting, useful for the B0 decision and for
-  a sniffer/debug log.
-- The radio decides tune result by its own SWR measurement after `A1`, so
-  `A2` matters only for the Hi-SWR indication and memory, not for safety.
-- Cancel: if the radio drops the carrier (TX GND high) during HUNT, the AH-4
-  aborts on its own (no power). Report `A1 A2`.
+Why start on `F1`: the radio measures the raw SWR between keying and `F2`
+and refuses to tune above some threshold (160 m on a short wire: refused).
+With the AH-4 cycle already running, its 10:1 divider is in line when the
+radio measures, the check passes, and the AH-4 gets to try. 160 m then
+tuned.
+
+Classic sequence (`f1start 0`, kept for comparison): `F1` -> 70 ms START
+pulse (AH-4 to bypass), `A1`; `F2` -> `A0`, TX INH high (RF off), START
+low; KEY -> TX INH released, START released 250 ms later; result as above.
+This is what an FC-40 does and it works wherever the radio's pre-check
+passes.
+
+Hard constraints learned on the bench:
+
+- `A0` within 50 ms of `F2` or the radio drops the carrier.
+- `A1` within 2.5 s of `F1` or the radio cancels the tune.
+- Carrier must be on 200-300 ms before the AH-4 asserts KEY, or its power
+  check fails (`A1` at 300 ms after `F1` was too late, 50-150 ms works).
+- SENSE must be a hard ground strap; if it floats for a moment the radio
+  un-registers the tuner until a power cycle.
+- KEY needs debouncing (10 ms in firmware) and an RC in hardware: the wire
+  picks up RF with 10 W on the antenna.
+- Tune with the CW power set to 10 W; the tune carrier follows the per-mode
+  power menu.
 
 ## 4. Hardware
 

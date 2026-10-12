@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bench session: owns the Teensy emulator port and the FT-891 CAT port,
+"""Bench session: owns the Teensy adapter port and the FT-891 CAT port,
 merges everything into one timestamped log, and takes commands from a FIFO
 so that other shells (or Claude) can drive the test without fighting over
 the serial ports.
@@ -9,7 +9,7 @@ the serial ports.
 Then from another shell:
 
     echo 'cat FA;'      > logs/cmd     # send a CAT command, reply shows in log
-    echo 'emu ?'        > logs/cmd     # send a line to the Teensy
+    echo 'emu ?'        > logs/cmd     # send a line to the adapter
     echo 'note tune 1'  > logs/cmd     # free-text marker in the log
     echo 'quit'         > logs/cmd
     tail -f logs/session.log
@@ -83,9 +83,16 @@ def main():
             buf += data
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
-                log("EMU", line.decode("ascii", "replace").rstrip())
+                text = line.decode("ascii", "replace").rstrip()
+                # The radio ignores CAT while it transmits; tell the watchdog.
+                if text.endswith(" TXGND 0"):
+                    cat_state["tx"] = True
+                elif text.endswith(" TXGND 1"):
+                    cat_state["tx"] = False
+                    cat_state["sent"] = 0.0
+                log("EMU", text)
 
-    cat_state = {"sent": 0.0, "got": 0.0}
+    cat_state = {"sent": 0.0, "got": 0.0, "tx": False}
 
     def cat_reader():
         assert cat is not None
@@ -93,7 +100,8 @@ def main():
         while not stop.is_set():
             # Watchdog: a CAT command with no reply for 3 s means the CP2105
             # endpoint stalled (RF into USB); reopening the port clears it.
-            if cat_state["sent"] > cat_state["got"] and time.time() - cat_state["sent"] > 3:
+            if (not cat_state["tx"] and cat_state["sent"] > cat_state["got"]
+                    and time.time() - cat_state["sent"] > 3):
                 log("NOTE", "cat watchdog: no reply for 3 s, reopening port")
                 cat_state["sent"] = 0.0
                 reopen(cat, "cat")
