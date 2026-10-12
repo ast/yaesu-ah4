@@ -46,6 +46,64 @@ Radio: menu 16-15 TUNER SELECT = EXTERNAL, then power the radio off and on
 with the adapter connected. Set the CW power to 10 W (menu 16-03): the tune
 carrier follows the per-mode power setting and the AH-4 wants 5-15 W.
 
+## Operating
+
+### Radio settings (once)
+
+| Menu | Setting | Why |
+|---|---|---|
+| 16-15 TUNER SELECT | EXTERNAL | makes the TUN/LIN jack a tuner port |
+| 16-03 HF CW PWR | 10 (W) | the tune carrier follows the per-mode power; the AH-4 needs 5-15 W |
+| 16-06 50M CW PWR | 10 (W) | same for 6 m |
+
+After changing 16-15, switch the radio off and on again with the adapter
+connected. The radio only looks for a tuner at power-up.
+
+### Power-up order
+
+1. Adapter (5 V on the Teensy's USB).
+2. AH-4 (13.8 V).
+3. Radio. The TUNER indicator may show the tuner as off; that is normal.
+
+If the radio was already on when the adapter was plugged in, power-cycle the
+radio.
+
+### Tuning
+
+1. Select the band and frequency, and CW mode (the tune carrier in SSB is
+   only about 5 W on this radio, which is marginal for the AH-4).
+2. Press `F` until the FUNCTION-1 list shows, turn MULTI to `TNR`, then
+   **press and hold MULTI for one second**. The tuner function can also be
+   put on the A, B or C key (FT-891 Operating Manual, "Changing the
+   function assigned to the A/B/C keys"), or started over CAT with `AC002;`.
+3. The radio transmits a steady carrier and shows WAIT. The AH-4 clicks
+   for one to four seconds. The Teensy LED is on while the radio transmits.
+4. The carrier stops. The TUNER indicator stays on and the radio's SWR
+   reading is the matched result. A Hi-SWR indication means the AH-4 could
+   not match this antenna on this frequency; the AH-4 is then in bypass.
+
+Typical cycle: 1.6 s on a band the AH-4 remembers, 2 to 4 s for a fresh
+hunt. The radio allows up to about 15 s.
+
+### Afterwards
+
+- The AH-4 keeps its match until the next tune, a reset, or power loss. It
+  does not retune by itself when you QSY. Retune after a QSY of more than a
+  few tens of kHz on the low bands, or whenever the SWR reading climbs.
+- Pressing `TNR` (short press) switches the tuner function off. The
+  adapter resets the AH-4 to bypass, and the antenna is connected straight
+  through.
+- The adapter does nothing on its own; it only reacts to the radio.
+
+### If a tune fails immediately
+
+| Symptom | Cause |
+|---|---|
+| Carrier for about 1.5 s, then a failure | the AH-4 is not answering: no 13.8 V to it, or the control cable |
+| Carrier of a few seconds, Hi-SWR, relay clicks heard | the AH-4 tried and could not match; wrong antenna length for the band (half-wave multiples are the classic case) |
+| Radio keys for half a second and gives up, tuner indicator goes off | the radio refused on its raw SWR check. Should not happen with the F1-start sequence; check the adapter is running (`?` over USB shows `f1start=1`) |
+| `AC001;` over CAT answers `?;` | the radio has not registered the tuner: power-cycle the radio with the adapter connected |
+
 ## Firmware
 
 ```sh
