@@ -30,9 +30,10 @@ NixOS needs the Teensy udev rules for flashing without root:
 | 8 (TX1) | D3 | DIN 5 | RX D | tuner to radio serial, 270 ohm in series |
 | 0 | B0 | DIN 2 | TX GND | low while radio transmits, direct |
 | 1 | B1 | DIN 7 | RESET | high while radio is on, 10 k in series |
-| 2 | B2 | DIN 8 | TX INH | open drain from the Teensy, direct |
-| 3 | B3 | AH-4 START | later | gate of a 2N7000, leave open for now |
-| 4 | B7 | AH-4 KEY | later | leave open for now |
+| 2 | B2 | DIN 8 | TX INH | active HIGH on the FT-891: driven high = RF inhibited, input = released |
+| 3 | B3 | 2N7000 gate | AH-4 START | 100 k gate to GND, source to GND, drain to START (white). Pin high = START pulled low |
+| 4 | B7 | AH-4 KEY (green) | KEY | 10 k pull-up to Teensy VCC (5 V). Low = tuner keying |
+| GND | GND | AH-4 GND (black) | | common with the 13.8 V supply return |
 | 21 (A0) | F0 | bridge FWD, blue | forward sense | 1 k in series, 100 nF pin to GND |
 | 20 (A1) | F1 | bridge REFL, red | reflected sense | 1 k in series, 100 nF pin to GND |
 | 5 | D0 | DIN 6 | SENSE / BAND C | 1 k in series; firmware holds it low = "tuner present", floats it in LAMP mode |
@@ -70,7 +71,7 @@ tail -f logs/session.log
 Emulator commands (send with `emu ...`): `?`, `lamp 0|1` (float DIN 4-7 and
 log band data for menu 16-15 = LAMP), `mode 0|1` (simulate / bridge a real
 AH-4), `reset` (70 ms START pulse), `s a0 a1` (raw bytes to the radio), `auto 0|1`, `boot [0|1]`, `a0 <ms>`, `a1 <ms>`, `tune <ms>`,
-`result ok|fail|b0`, `inhtune 0|1`, `inh 0|1`, `start 0|1`, `clear`,
+`result ok|fail|b0`, `inhtune 0|1 [ms]`, `inh 0|1|2` (release / low / high), `start 0|1`, `clear`,
 `note <text>`.
 
 ### Experiments to run
