@@ -465,3 +465,20 @@ power cycle. `mode 1` alone did not. To be re-verified.
 Dry run (exp23b) reproduced K9EQ's diagrams exactly: 70 ms START pulse gives
 no KEY activity; a 600 ms START with no carrier gives KEY low at +320 ms and
 then the abort pattern (20 ms high, 200 ms low, high).
+
+### Tune carrier power vs mode (exp27-28)
+
+The FT-891 keeps separate power settings per mode and band: menu 16-01 HF
+SSB PWR, 16-02 HF AM PWR, 16-03 HF CW PWR, 16-04..06 the same for 50 MHz.
+`PC;` reads and sets the one for the current mode. Albin's radio: SSB 10,
+AM 5, CW 5 (and 5 for 6 m).
+
+- CW mode, PC = 5: tune carrier 5.3 W. CW mode, PC = 10 (exp5): 10.2 W.
+- USB mode, PC = 10: tune carrier only 5.4 W. So in SSB mode the tune
+  carrier does not follow the SSB power setting; it looks like it uses
+  the AM or CW setting (both 5 here). Not yet separated.
+- A mode change with the tuner on re-sends `F0 <freq>`.
+
+For the AH-4's 5-15 W window the safe recommendation is to set the CW (and
+AM) power to 10 W. 5 W is on the edge; the AH-4 did accept 5.3 W on the
+bench.
