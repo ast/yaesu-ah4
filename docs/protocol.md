@@ -347,7 +347,9 @@ IDLE
   F2 (parked result)       A0, then send the parked result           → IDLE
 
 WAIT_KEY
-  KEY asserted             tKey = now, TX INH release                → KEYED
+  KEY asserted, and KEY has been seen released since START went low
+                           tKey = now, TX INH release                → KEYED
+                           (a KEY still low from an aborted previous cycle must not count)
   now - entered ≥ 1500 ms  START high, TX INH release, report NOKEY  → IDLE
 
 KEYED
@@ -386,14 +388,20 @@ settle 100 ms (blip comes at 18..40 ms), fail wait 2 s, reset pulse 70 ms,
 Hard real-time requirement: `A0` within 50 ms of the last byte of `F2`.
 Everything else has at least hundreds of milliseconds of slack. A hardware
 UART and a main loop that never blocks for more than a few milliseconds
-are enough; the Teensy 2.0 implementation answers in under 1 ms.
+are enough; the Teensy 2.0 implementation answers in under 1 ms. Send the
+`A0` before doing anything that could block, such as writing a log line to
+a USB host that may have stalled.
 
 ### 3.3 Edge cases
 
 - **Tuner off (`AC000;`)** also arrives as `F1`. In F1-start mode this
   begins a cycle with no carrier; the AH-4 aborts into bypass by itself
   after about 700 ms, which is the state "tuner off" wants. Harmless.
-- **Cancel** arrives as `F1` after the radio unkeyed: same as above.
+- **Cancel** arrives as `F1` after the radio unkeyed: same as above. The
+  AH-4 may still be in its own abort sequence (KEY low) when the new cycle
+  begins, which is why WAIT_KEY needs the release-then-assert
+  qualification. Tested: cancel 1.5 s into a hunt, retune 1 s later,
+  correct result.
 - **Radio refuses even with the bridge in line** (very bad antenna, or no
   AH-4 connected): the radio unkeys without `F2`; the cycle continues with
   no carrier, the AH-4 aborts, the result is parked and discarded at the
