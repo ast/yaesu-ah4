@@ -96,16 +96,17 @@ static void logNote(const char *s) {
 }
 
 // ---------------------------------------------------------------- line I/O
-static void txInh(bool assert) {
-  if (assert) {
-    pinMode(PIN_TXINH, OUTPUT);
-    digitalWrite(PIN_TXINH, LOW);
-  } else {
+// 0 = released (input), 1 = driven low, 2 = driven high (to test an active-high input)
+static void txInh(uint8_t level) {
+  if (level == 0) {
     pinMode(PIN_TXINH, INPUT);
+  } else {
+    pinMode(PIN_TXINH, OUTPUT);
+    digitalWrite(PIN_TXINH, level == 2 ? HIGH : LOW);
   }
   logTs();
   Serial.print(F("INH "));
-  Serial.println(assert ? 1 : 0);
+  Serial.println(level);
 }
 
 static void sendToRadio(uint8_t b) {
@@ -526,7 +527,7 @@ static void handleHostLine(char *line) {
   } else if (!strcmp(cmd, "inhtune") && arg) {
     cfg.inhDuringTune = atoi(arg); printStatus();
   } else if (!strcmp(cmd, "inh") && arg) {
-    txInh(atoi(arg));
+    txInh((uint8_t)atoi(arg));
   } else if (!strcmp(cmd, "start") && arg) {
     // drive AH-4 START via 2N7000: pin HIGH = line pulled low (asserted)
     digitalWrite(PIN_START, atoi(arg) ? HIGH : LOW);

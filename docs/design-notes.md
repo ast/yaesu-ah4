@@ -397,3 +397,26 @@ t=0        radio: FF F1 00 00
 - If the AH-4 never asserts KEY, send `B0` then `A1` within a couple of
   seconds; the radio unkeys on `A1`.
 - Cancel from the radio arrives as `F1`: pulse START (reset) and `A1`.
+
+### LAMP mode (menu 16-15 = 3), measured 2026-10-12
+
+With the Teensy floating DIN 4-7 (pull-ups) the radio drives them as band
+data, matching the standard Yaesu 4-bit code on the TUN/LIN jack:
+
+| DIN | Signal in LAMP mode |
+|---|---|
+| 4 (TX D) | BAND A, bit 0 |
+| 5 (RX D) | BAND B, bit 1 |
+| 6 (SENSE) | BAND C, bit 2 |
+| 7 (RESET) | BAND D, bit 3 |
+
+| Band | 160 | 80 | 40 | 30 | 20 | 17 | 15 | 12 | 10 | 6 m |
+|---|---|---|---|---|---|---|---|---|---|---|
+| code | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+
+The code updates about 350 ms after the CAT frequency change, with a brief
+intermediate code visible on some transitions.
+
+TX INH in LAMP mode: idles at 0 V, and pulling it low does not stop a CAT
+`TX1;` key-up (TX GND still goes low), nor does pulling it low while keyed
+unkey the radio. Same as EXTERNAL mode. Wiring to DIN 8 verified.
