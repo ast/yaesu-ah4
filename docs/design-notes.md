@@ -564,3 +564,9 @@ finishes before `F2`, the result is parked and sent right after `F2`'s
 shows the raw SWR, as before. Tuner-off (`AC000;`) also arrives as `F1`,
 which in this mode starts a carrier-less cycle that aborts into bypass
 after ~700 ms: harmless, a few relay clicks.
+
+Lesson from exp33 (first attempt): with SENSE driven by the Teensy (D0),
+every Teensy reboot or reflash lets SENSE float for a few seconds and the
+radio un-registers the tuner (RESET drops, `AC002;` -> `?`) until the radio
+is power-cycled. For the adapter, SENSE must be a hard strap to GND, never
+a microcontroller pin. On the bench DIN 6 goes back to GND.
