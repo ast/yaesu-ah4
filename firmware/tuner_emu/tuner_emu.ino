@@ -13,11 +13,14 @@
 //   0  B0     <- [2] TX GND   low while radio transmits (internal pull-up)
 //   1  B1     <- [7] RESET    radio pulls low to reset, else floats: internal pull-up (10 k in series)
 //   2  B2     -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
+//   5  D0     -> [6] SENSE    OUTPUT LOW = "tuner present" (1 k in series); input in LAMP mode (BAND C)
 //   3  B3     -> AH-4 START   via 2N7000 (gate), not used yet
 //   4  B7     <- AH-4 KEY     10 k pull-up to 5 V, not used yet
 //   21 F0 A0  <- bridge FWD sense (blue), 1 k series + 100 nF to GND, 2.56 V ref
 //   20 F1 A1  <- bridge REFL sense (red), same
-//   GND       -- [3] GND and [6] SENSE (strap SENSE to GND so the radio sees a tuner)
+//   GND       -- [3] GND
+//   In LAMP mode (menu 16-15 = 3) pins 4..7 become band data outputs A..D from the radio;
+//   the "lamp 1" command stops Serial1 and floats pins 7, 8, 5, 1 so they can be read.
 //   Leave [1] +13.5 V unconnected; the Teensy 2.0 has no regulator, power it from USB.
 //
 // Host protocol (USB serial, 115200, line based):
@@ -32,6 +35,10 @@ static const uint8_t PIN_TXINH = 2;
 static const uint8_t PIN_START = 3;
 static const uint8_t PIN_KEY   = 4;
 static const uint8_t PIN_LED   = 11;
+static const uint8_t PIN_SENSE = 5;    // Teensy 2.0 D0 -> DIN 6
+static const uint8_t PIN_RX1   = 7;    // D2, DIN 4 (BAND A in LAMP mode)
+static const uint8_t PIN_TX1   = 8;    // D3, DIN 5 (BAND B in LAMP mode)
+static bool lampMode = false;
 static const uint8_t PIN_FWD   = A0;   // Teensy 2.0 pin 21
 static const uint8_t PIN_REFL  = A1;   // Teensy 2.0 pin 20
 
@@ -319,6 +326,7 @@ static void onCommand(const uint8_t *f) {
 }
 
 static void serviceRadioRx() {
+  if (lampMode) return;
   while (Serial1.available()) {
     uint8_t b = Serial1.read();
     uint32_t now = micros();
@@ -343,7 +351,7 @@ static void serviceRadioRx() {
 }
 
 // ---------------------------------------------------------------- control lines
-static int lastTxGnd = -1, lastReset = -1, lastKey = -1;
+static int lastTxGnd = -1, lastReset = -1, lastKey = -1, lastBand = -1;
 
 static void serviceLines() {
   int v;
@@ -368,6 +376,22 @@ static void serviceLines() {
       schedule(t + 200, 0xA0);
       schedule(t + 1000, 0xA1);
       logNote("radio on: boot sequence scheduled");
+    }
+  }
+  if (lampMode) {
+    // band data: A = DIN4 (pin 7), B = DIN5 (pin 8), C = DIN6 (pin 5), D = DIN7 (pin 1)
+    int band = (digitalRead(PIN_RX1) == HIGH ? 1 : 0)
+             | (digitalRead(PIN_TX1) == HIGH ? 2 : 0)
+             | (digitalRead(PIN_SENSE) == HIGH ? 4 : 0)
+             | (digitalRead(PIN_RESET) == HIGH ? 8 : 0);
+    if (band != lastBand) {
+      lastBand = band;
+      logTs();
+      Serial.print(F("BAND A="));  Serial.print(band & 1);
+      Serial.print(F(" B="));      Serial.print((band >> 1) & 1);
+      Serial.print(F(" C="));      Serial.print((band >> 2) & 1);
+      Serial.print(F(" D="));      Serial.print((band >> 3) & 1);
+      Serial.print(F(" code="));   Serial.println(band);
     }
   }
   v = digitalRead(PIN_KEY);
@@ -450,6 +474,10 @@ static void printStatus() {
   Serial.print(cfg.pwrMode);
   Serial.print(F("/"));
   Serial.print(cfg.pwrPeriod);
+  Serial.print(F(" lamp="));
+  Serial.print(lampMode);
+  Serial.print(F(" inh="));
+  Serial.print(digitalRead(PIN_TXINH));
   Serial.print(F(" txgnd="));
   Serial.print(digitalRead(PIN_TXGND));
   Serial.print(F(" reset="));
@@ -503,6 +531,23 @@ static void handleHostLine(char *line) {
     // drive AH-4 START via 2N7000: pin HIGH = line pulled low (asserted)
     digitalWrite(PIN_START, atoi(arg) ? HIGH : LOW);
     logTs(); Serial.print(F("START ")); Serial.println(atoi(arg));
+  } else if (!strcmp(cmd, "lamp") && arg) {
+    lampMode = atoi(arg);
+    if (lampMode) {
+      Serial1.end();
+      pinMode(PIN_RX1, INPUT_PULLUP);
+      pinMode(PIN_TX1, INPUT_PULLUP);
+      pinMode(PIN_SENSE, INPUT_PULLUP);
+      pinMode(PIN_RESET, INPUT_PULLUP);
+      lastBand = -1;
+      logNote("LAMP mode: serial off, DIN 4-7 floated as band inputs");
+    } else {
+      pinMode(PIN_SENSE, OUTPUT);
+      digitalWrite(PIN_SENSE, LOW);
+      Serial1.begin(4800);
+      logNote("EXTERNAL mode: SENSE low, serial on");
+    }
+    printStatus();
   } else if (!strcmp(cmd, "mode") && arg) {
     cfg.mode = atoi(arg);
     ah4Abort();
@@ -536,7 +581,7 @@ static void handleHostLine(char *line) {
     while (arg) { Serial.print(arg); Serial.print(' '); arg = strtok(nullptr, " \r\n"); }
     Serial.println();
   } else {
-    logNote("commands: ? | mode 0/1 | reset | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | pwr 0/1/2 [ms] | cal <k> <c> | adc | clear | note ...");
+    logNote("commands: ? | lamp 0/1 | mode 0/1 | reset | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | pwr 0/1/2 [ms] | cal <k> <c> | adc | clear | note ...");
   }
 }
 
@@ -566,6 +611,8 @@ void setup() {
   digitalWrite(PIN_START, LOW);     // 2N7000 off = START released
   pinMode(PIN_KEY, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_SENSE, OUTPUT);
+  digitalWrite(PIN_SENSE, LOW);     // tuner present
   analogReference(INTERNAL);        // 2.56 V on ATmega32U4
 
   Serial.begin(115200);
