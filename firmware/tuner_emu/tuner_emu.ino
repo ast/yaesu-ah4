@@ -70,7 +70,8 @@ struct Settings {
   uint8_t  tuneResult  = 0;      // 0 = ok (A1), 1 = fail (A1 A2), 2 = no carrier (B0 .. A1)
   bool     inhDuringTune = false;// drive TX INH HIGH (active high!) at F2 for inhMs
   uint16_t inhMs       = 1000;   // how long to inhibit after F2
-  uint8_t  mode        = 0;      // 0 = simulate replies, 1 = bridge to a real AH-4 on START/KEY
+  uint8_t  mode        = 0;      // 0 = simulate, 1 = AH-4 bridge (tune on F2), 2 = AH-4 bridge, tune starts on F1
+  uint16_t f1A1Delay   = 300;    // mode 2: ms after F1 before A1 (radio keys ~50 ms after A1, KEY comes ~330 ms after START)
   uint8_t  pwrMode     = 1;      // 0 = off, 1 = while TX GND low, 2 = always
   uint16_t pwrPeriod   = 10;     // ms between PWR samples
 } cfg;
@@ -159,6 +160,9 @@ static inline bool ah4Key() { return digitalRead(PIN_KEY) == LOW; }
 
 static Ah4State ahState = AH_IDLE;
 static uint32_t ahT0 = 0, ahT1 = 0;
+// mode 2 bookkeeping: did F2 arrive during this cycle, and is a result waiting for it?
+static bool f2Seen = false;
+static int8_t ahResult = -1;        // -1 none, 0 ok, 1 fail, 2 no key
 
 static const uint16_t AH_RESET_MS    = 70;
 static const uint16_t AH_KEY_TIMEOUT = 1500;
@@ -172,13 +176,38 @@ static void ahEnter(Ah4State st) {
   logTs(); Serial.print(F("AH4 state ")); Serial.println((int)st);
 }
 
+// Deliver a finished result to the radio. In mode 2 the result may be ready
+// before F2 has arrived; then it is parked until F2's A0 has been sent.
+static void ah4Report(int8_t res) {
+  if (cfg.mode == 2 && !f2Seen) {
+    ahResult = res;
+    logNote("AH4 result parked until F2");
+    return;
+  }
+  uint32_t now = millis();
+  switch (res) {
+    case 0: sendToRadio(0xA1); break;
+    case 1: sendToRadio(0xA1); schedule(now + 20, 0xA2); break;
+    default: sendToRadio(0xB0); schedule(now + 300, 0xA1); break;
+  }
+  ahResult = -1;
+}
+
+static void ah4OnTuneAtF1() {         // mode 2: F1 starts the AH-4 cycle; A1 is scheduled by caller
+  f2Seen = false;
+  ahResult = -1;
+  ah4Start(true);
+  ahT0 = millis();
+  ahEnter(AH_WAIT_KEY);
+}
+
 static void ah4OnBypass() {           // F1
   ah4Start(true);
   ahT0 = millis();
   ahEnter(AH_RESET_PULSE);
 }
 static void ah4OnTune() {             // F2, A0 already sent by caller
-  txInh(2);                           // hold RF off until the AH-4 is ready
+  if (cfg.mode == 1) txInh(2);        // hold RF off until the AH-4 is ready
   ah4Start(true);
   ahT0 = millis();
   ahEnter(AH_WAIT_KEY);
@@ -206,12 +235,11 @@ static void serviceAh4() {
         txInh(0);                     // let the carrier through now
         ahEnter(AH_KEYED);
       } else if (now - ahT1 >= AH_KEY_TIMEOUT) {
-        logNote("AH4 no KEY: B0 A1");
+        logNote("AH4 no KEY");
         ah4Start(false);
         txInh(0);
-        sendToRadio(0xB0);
-        schedule(now + 300, 0xA1);
         ahState = AH_IDLE;
+        ah4Report(2);
       }
       break;
     case AH_KEYED:
@@ -224,12 +252,11 @@ static void serviceAh4() {
       if (!ah4Key()) {
         ahEnter(AH_SETTLE);
       } else if (now - ahT0 >= AH_HUNT_MAX_MS) {
-        logNote("AH4 hunt timeout: reset, A1 A2");
-        sendToRadio(0xA1);
-        schedule(now + 20, 0xA2);
+        logNote("AH4 hunt timeout: reset");
         ah4Start(true);                 // reset pulse to bypass
         ahT0 = now;
-        ahEnter(AH_RESET_PULSE);        // its A1 is harmless; radio ignores extras
+        ahEnter(AH_RESET_PULSE);
+        ah4Report(1);
         break;
       }
       break;
@@ -239,16 +266,15 @@ static void serviceAh4() {
         ahEnter(AH_FAIL_WAIT);
       } else if (now - ahT1 >= AH_SETTLE_MS) {
         logNote("AH4 tuned OK");
-        sendToRadio(0xA1);
         ahState = AH_IDLE;
+        ah4Report(0);
       }
       break;
     case AH_FAIL_WAIT:
       if (!ah4Key() || now - ahT1 > 2000) {
-        logNote("AH4 tune failed: A1 A2");
-        sendToRadio(0xA1);
-        schedule(now + 20, 0xA2);
+        logNote("AH4 tune failed");
         ahState = AH_IDLE;
+        ah4Report(1);
       }
       break;
     default:
@@ -299,6 +325,30 @@ static void onCommand(const uint8_t *f) {
       case 0xF1: ah4OnBypass(); break;
       case 0xF2: ah4OnTune(); break;
       default:   schedule(millis() + 300, 0xA1); break;   // E0, F0: nothing to do
+    }
+    return;
+  }
+  if (cfg.mode == 2) {
+    // Tune starts on F1 so the radio's raw-SWR check sees the AH-4's bridge.
+    clearPending();
+    sendToRadio(0xA0);
+    switch (op) {
+      case 0xF1:
+        if (ahState != AH_IDLE) ah4Abort();
+        ah4OnTuneAtF1();
+        schedule(millis() + cfg.f1A1Delay, 0xA1);
+        break;
+      case 0xF2:
+        f2Seen = true;
+        if (ahResult >= 0) {
+          ah4Report(ahResult);              // AH-4 already finished
+        } else if (ahState == AH_IDLE) {
+          ah4OnTune();                      // no cycle running (e.g. aborted): classic path
+        }
+        break;
+      default:
+        schedule(millis() + 300, 0xA1);
+        break;
     }
     return;
   }
@@ -564,9 +614,12 @@ static void handleHostLine(char *line) {
       logNote("EXTERNAL mode: SENSE low, serial on");
     }
     printStatus();
+  } else if (!strcmp(cmd, "f1a1") && arg) {
+    cfg.f1A1Delay = atoi(arg); printStatus();
   } else if (!strcmp(cmd, "mode") && arg) {
     cfg.mode = atoi(arg);
     ah4Abort();
+    f2Seen = false; ahResult = -1;
     inhReleaseAt = 0;
     clearPending();
     printStatus();
@@ -598,7 +651,7 @@ static void handleHostLine(char *line) {
     while (arg) { Serial.print(arg); Serial.print(' '); arg = strtok(nullptr, " \r\n"); }
     Serial.println();
   } else {
-    logNote("commands: ? | lamp 0/1 | mode 0/1 | reset | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | pwr 0/1/2 [ms] | cal <k> <c> | adc | clear | note ...");
+    logNote("commands: ? | lamp 0/1 | mode 0/1/2 | f1a1 <ms> | reset | s <hex..> | auto 0/1 | boot [0/1] | a0 <ms> | a1 <ms> | tune <ms> | result ok/fail/b0 | inhtune 0/1 | inh 0/1 | start 0/1 | pwr 0/1/2 [ms] | cal <k> <c> | adc | clear | note ...");
   }
 }
 

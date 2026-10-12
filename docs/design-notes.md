@@ -543,3 +543,24 @@ CAT recovery: the kernel logged `cp210x ttyUSB0: urb stopped: -32` (USB
 endpoint stall) at the 17 m tune. Closing and reopening the port restored
 CAT without touching the radio. `tools/session.py` now has a watchdog that
 reopens the CAT port when a command gets no reply for 3 s.
+
+### exp32: the radio refuses a hopeless antenna
+
+160 m, 1.85 MHz, same wire: `F0 01 85` on the QSY, then on `AC002;` the
+radio sent `F1`, keyed for 455 ms, read its SWR meter at 255 (full scale),
+unkeyed and never sent `F2`. `AC;` read 000 afterwards: the radio switched
+the tuner off. So the FT-891's pre-check does refuse, and the AH-4 never
+got to try. All nine HF/6 m bands of this antenna passed the check, so the
+threshold is somewhere between the worst of those and full scale.
+
+Workaround to test (firmware `mode 2`): on `F1` start the AH-4 cycle
+instead of resetting it. START low at `F1`, `A1` ~300 ms later, the radio
+keys 50 ms after that, and the AH-4 asserts KEY about 330 ms after START,
+so by the time the radio measures, the AH-4's 10:1 divider is in line and
+the input looks like 50 ohm. `F2` arrives while the AH-4 hunts; the adapter
+acknowledges it and reports the result when KEY releases. If the AH-4
+finishes before `F2`, the result is parked and sent right after `F2`'s
+`A0`. On failure the AH-4 drops to bypass and the radio's final check
+shows the raw SWR, as before. Tuner-off (`AC000;`) also arrives as `F1`,
+which in this mode starts a carrier-less cycle that aborts into bypass
+after ~700 ms: harmless, a few relay clicks.
