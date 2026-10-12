@@ -494,3 +494,47 @@ path) and forward briefly 12 W; the radio's own SWR check passed.
 
 Status: the adapter concept is proven end to end on the bench. The Teensy
 in `mode 1` is a working FT-891 to AH-4 adapter.
+
+## 10. Band sweep with the real antenna (2026-10-12, exp31)
+
+CW, PC010 (CW power 10 W), mode 1, one `AC002;` per band, 12 s apart.
+
+| Band | F2 sent | AH-4 result | hunt | carrier | radio SWR meter after (0-255) |
+|---|---|---|---|---|---|
+| 80 m 3.55 | yes | ok | 1.1 s | 2.1 s | 116 |
+| 40 m 7.05 | yes | ok | 0.7 s | 1.6 s | 155 |
+| 30 m 10.12 | yes | ok | 0.8 s | 1.8 s | 198 |
+| 20 m 14.05 | yes | ok | 0.6 s | 1.6 s | 236 |
+| 17 m 18.10 | yes | FAIL (A1 A2) | 1.0 s | 1.9 s | (CAT dead) |
+| 15 m 21.05 | yes | FAIL (A1 A2) | 1.2 s | 2.1 s | (CAT dead) |
+| 12 m 24.92 | yes | ok | 0.9 s | 1.9 s | (CAT dead) |
+| 10 m 28.05 | yes | ok | 1.0 s | 2.0 s | (CAT dead) |
+| 6 m 50.10 | yes | ok | 1.4 s | 2.4 s | (CAT dead) |
+
+Findings:
+
+- The radio sent `F2` on every band, including those where the raw SWR
+  (tuner bypassed) was clearly high by the bridge's reflected reading. So
+  the FT-891's pre-check did not refuse any tune this antenna presented.
+  Its threshold, if any, is above what we saw. Worth one deliberate test
+  with an open or shorted AH-4 output.
+- KEY came 300-350 ms after START on every band; the AH-4 accepted the
+  carrier level everywhere (no early abort), so the tune power was inside
+  5-15 W on all bands as far as the AH-4 is concerned.
+- The AH-4 failed on 17 m and 15 m (failure blip, reported as `A1 A2`); the
+  antenna is simply not matchable there with this tuner. The sequence
+  worked as designed on failures.
+- The radio's own SWR meter reading captured right after each tune rose
+  from 116 (80 m) to 236 (20 m) although the AH-4 reported success. Scale
+  and timing of that reading are unclear (it may be sampled while the AH-4
+  switches RL1/RL2 at KEY release). Needs the display observed.
+- The Pecab bridge detector output is roughly proportional to frequency:
+  about 0.015 V at 3.55 MHz with the AH-4 happily keying, and readings
+  equivalent to 40-56 W at 28-50 MHz from a 10 W setting. The 14 MHz
+  calibration is only valid near 14 MHz; a per-band calibration table is
+  needed before the bridge numbers mean anything elsewhere. The 14 MHz
+  pre-check reading was 7.9 W, consistent with the radio folding back into
+  a high SWR.
+- CAT stopped answering after the 17 m tune and stayed dead (`ID;` no
+  reply, USB device still enumerated). RF into the USB/CAT path with the
+  real antenna is the prime suspect. The TUN/LIN side kept working.
