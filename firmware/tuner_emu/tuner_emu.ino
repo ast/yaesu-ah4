@@ -190,13 +190,13 @@ static void ah4Abort() {              // radio cancelled (F1 while busy)
 }
 
 static void serviceAh4() {
-  if (cfg.mode != 1 || ahState == AH_IDLE) return;
+  if (ahState == AH_IDLE) return;     // runs in any mode (manual "reset" uses it too)
   uint32_t now = millis();
   switch (ahState) {
     case AH_RESET_PULSE:
       if (now - ahT1 >= AH_RESET_MS) {
         ah4Start(false);
-        sendToRadio(0xA1);
+        if (cfg.mode == 1) sendToRadio(0xA1);
         ahState = AH_IDLE;
       }
       break;
