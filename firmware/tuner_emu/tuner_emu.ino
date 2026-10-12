@@ -156,7 +156,21 @@ static void ah4Start(bool assert) {
   digitalWrite(PIN_START, assert ? HIGH : LOW);
   logTs(); Serial.print(F("START ")); Serial.println(assert ? 1 : 0);
 }
-static inline bool ah4Key() { return digitalRead(PIN_KEY) == LOW; }
+// KEY with a 10 ms debounce: the raw line picks up RF when the antenna is hot.
+static bool keyDeb = false;          // debounced "asserted" state
+static int  keyRawLast = HIGH;
+static uint32_t keyRawSince = 0;
+static void serviceKeyDebounce() {
+  int v = digitalRead(PIN_KEY);
+  uint32_t now = millis();
+  if (v != keyRawLast) { keyRawLast = v; keyRawSince = now; }
+  bool asserted = (v == LOW);
+  if (asserted != keyDeb && now - keyRawSince >= 10) {
+    keyDeb = asserted;
+    logTs(); Serial.print(F("KEY ")); Serial.println(asserted ? 0 : 1);
+  }
+}
+static inline bool ah4Key() { return keyDeb; }
 
 static Ah4State ahState = AH_IDLE;
 static uint32_t ahT0 = 0, ahT1 = 0;
@@ -447,13 +461,6 @@ static void serviceLines() {
       Serial.print(F(" code="));   Serial.println(band);
     }
   }
-  v = digitalRead(PIN_KEY);
-  if (v != lastKey) {
-    lastKey = v;
-    logTs();
-    Serial.print(F("KEY "));
-    Serial.println(v);
-  }
 }
 
 // ---------------------------------------------------------------- power
@@ -545,7 +552,7 @@ static void printStatus() {
   Serial.print(F(" reset="));
   Serial.print(digitalRead(PIN_RESET));
   Serial.print(F(" key="));
-  Serial.println(digitalRead(PIN_KEY));
+  Serial.println(keyDeb ? 0 : 1);
 }
 
 static void handleHostLine(char *line) {
@@ -696,6 +703,7 @@ void setup() {
 
 void loop() {
   serviceRadioRx();
+  serviceKeyDebounce();
   serviceLines();
   servicePending();
   serviceAh4();
