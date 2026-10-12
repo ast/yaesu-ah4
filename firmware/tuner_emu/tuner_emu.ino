@@ -178,12 +178,14 @@ static void ah4OnBypass() {           // F1
   ahEnter(AH_RESET_PULSE);
 }
 static void ah4OnTune() {             // F2, A0 already sent by caller
+  txInh(2);                           // hold RF off until the AH-4 is ready
   ah4Start(true);
   ahT0 = millis();
   ahEnter(AH_WAIT_KEY);
 }
 static void ah4Abort() {              // radio cancelled (F1 while busy)
   ah4Start(false);
+  txInh(0);
   ahState = AH_IDLE;
 }
 
@@ -201,10 +203,12 @@ static void serviceAh4() {
     case AH_WAIT_KEY:
       if (ah4Key()) {
         logNote("AH4 KEY asserted");
+        txInh(0);                     // let the carrier through now
         ahEnter(AH_KEYED);
       } else if (now - ahT1 >= AH_KEY_TIMEOUT) {
         logNote("AH4 no KEY: B0 A1");
         ah4Start(false);
+        txInh(0);
         sendToRadio(0xB0);
         schedule(now + 300, 0xA1);
         ahState = AH_IDLE;
@@ -563,6 +567,7 @@ static void handleHostLine(char *line) {
   } else if (!strcmp(cmd, "mode") && arg) {
     cfg.mode = atoi(arg);
     ah4Abort();
+    inhReleaseAt = 0;
     clearPending();
     printStatus();
   } else if (!strcmp(cmd, "reset")) {

@@ -148,7 +148,7 @@ present.
 The AH-4 does not start on RF alone. Without START it stays in whatever
 state it latched.
 
-## 3. Adapter behaviour
+## 3. Adapter behaviour (updated 2026-10-12 after the bench, see section 8)
 
 The adapter plays "FC-40" towards the radio and "Icom radio" towards the
 AH-4. Mapping:
@@ -159,7 +159,7 @@ AH-4. Mapping:
 | `E0 xx xx` | nothing | `A0`, then `A1` |
 | `F0 <freq>` | nothing (AH-4 keeps its latched match; it measures frequency itself) | `A0`, then `A1` |
 | `F1 00 00` | 70 ms START pulse: AH-4 to bypass. Matches the radio's intent (bypass, then measure raw SWR) | `A0`, then `A1` after the pulse |
-| `F2 <freq>` | run the tune state machine below | `A0` at once, `A1` on KEY release, `A2` after `A1` on failure, `B0` before `A1` on timeout waiting for KEY |
+| `F2 <freq>` | `A0` within 50 ms, TX INH high, START low; on KEY low release TX INH (RF reaches the AH-4 only now), release START 250 ms later; run the state machine below | `A0` at once, `A1` on KEY release, `A2` after `A1` on failure, `B0` before `A1` on timeout waiting for KEY |
 
 Tune state machine on `F2`:
 
@@ -176,10 +176,10 @@ HUNT --t>16s--> TIMEOUT: START 70ms pulse (bypass); send A1, A2; -> IDLE
 
 Notes:
 
-- First version: do not touch TX INH during a tune. The MFJ-939Y does not
-  use it and works with the FT-891. Later experiment: hold TX INH low from
-  `F2` until KEY asserts so the radio's carrier never hits the AH-4 while
-  its relays are switching, if the radio resumes TX after release.
+- TX INH is ACTIVE HIGH on the FT-891 and gates only the RF (section 8).
+  Drive it high from `F2` until the AH-4 asserts KEY, then release. The
+  radio keeps its sequence either way, so this is optional but keeps RF off
+  the AH-4 while its relays switch, as an Icom radio would.
 - TX GND (pin 2) is worth reading as an input anyway: it tells the adapter
   when the radio is actually transmitting, useful for the B0 decision and for
   a sniffer/debug log.
@@ -392,10 +392,12 @@ t=0        radio: FF F1 00 00
 - The AH-4 measures its own carrier window; the radio's 5.7 W / 11 W
   key-on peak settles in 100 ms, long before the AH-4 looks. Tune with the
   radio's PC set to 10 W; the tune carrier follows the PC setting.
-- TX INH (drive HIGH) cuts RF without ending the TX state, so the adapter
-  can hold RF off from `F2` until the AH-4 has booted and asserted KEY, and
-  again while the AH-4 switches its relays. Whether the radio keeps waiting
-  for `A1` with RF inhibited is tested in exp22.
+- TX INH (drive HIGH) cuts RF without ending the TX state, and the radio's
+  tune sequence is unaffected by it (exp22: inhibited for 1 s or 2.5 s after
+  `F2`, or raised before `F1`, the radio still keyed, sent `F2` 0.5 s later,
+  waited for `A1` and unkeyed 100 ms after it). So the adapter can hold RF
+  off from `F2` until the AH-4 has booted and asserted KEY, which is exactly
+  the Icom sequence: the AH-4 only sees RF once its bridge is switched in.
 - If the AH-4 never asserts KEY, send `B0` then `A1` within a couple of
   seconds; the radio unkeys on `A1`.
 - Cancel from the radio arrives as `F1`: pulse START (reset) and `A1`.
@@ -423,3 +425,11 @@ TX INH in LAMP mode: idles at 0 V; pulling it low does nothing; driving it
 high cuts the RF carrier (FM, 5 W -> 0 W within one 10 ms sample) while TX
 GND stays low, and RF returns on release. Identical in EXTERNAL mode. So the
 FT-891's TX INH is an active-high RF inhibit, not a PTT inhibit.
+
+### TX INH during a tune (exp22)
+
+Inhibit driven high at `F2` for 1 s and for 2.5 s, and raised before `F1`:
+the radio keyed on schedule, sent `F2` 0.5 s after keying, waited for `A1`
+and unkeyed 100 ms after it in every case. RF after release is back at full
+level within one 10 ms sample, no overshoot (5.3 W peak, settling to 5.0 W
+over 100 ms at PC005). So the adapter can gate RF freely during the tune.
