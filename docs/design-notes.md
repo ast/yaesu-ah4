@@ -482,3 +482,15 @@ AM 5, CW 5 (and 5 for 6 m).
 For the AH-4's 5-15 W window the safe recommendation is to set the CW (and
 AM) power to 10 W. 5 W is on the edge; the AH-4 did accept 5.3 W on the
 bench.
+
+### exp30: AH-4 tune at CW 10 W
+
+`PC010;` in CW with the tuner registered did not drop RESET (the earlier
+drop in exp24 was in USB mode with `PC010;` and `mode 1` sent together; not
+reproduced since). Tune: carrier 10.5 W, KEY asserted 300 ms after START,
+hunt 1.06 s this time, A1, radio accepted. In the last ~200 ms before unkey
+the bridge saw reflected power rise (AH-4 switching RL1/RL2 to the matched
+path) and forward briefly 12 W; the radio's own SWR check passed.
+
+Status: the adapter concept is proven end to end on the bench. The Teensy
+in `mode 1` is a working FT-891 to AH-4 adapter.

@@ -4,7 +4,13 @@ Adapter to run an Icom AH-4 antenna tuner from a Yaesu FT-891's TUN/LIN jack
 as if it were a Yaesu FC-40. See `docs/design-notes.md` for the protocols and
 the plan.
 
-## Current stage: protocol bench
+## Current stage: working adapter on the bench
+
+`emu mode 1` turns the Teensy into the FT-891 to AH-4 adapter (first full
+tune 2026-10-12). Mode 0 is the FC-40 emulator used to characterise the
+radio. Findings are in `docs/design-notes.md`, sections 8 and 9.
+
+## Protocol bench
 
 A Teensy 2.0 on the TUN/LIN jack pretends to be an FC-40 and logs everything
 the radio does, while the radio is driven over CAT into a dummy load.
