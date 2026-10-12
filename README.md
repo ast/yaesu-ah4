@@ -35,7 +35,8 @@ NixOS needs the Teensy udev rules for flashing without root:
 | 4 | B7 | AH-4 KEY | later | leave open for now |
 | 21 (A0) | F0 | bridge FWD, blue | forward sense | 1 k in series, 100 nF pin to GND |
 | 20 (A1) | F1 | bridge REFL, red | reflected sense | 1 k in series, 100 nF pin to GND |
-| GND | GND | DIN 3, DIN 6, bridge shield | ground, SENSE | SENSE to GND = "tuner present" |
+| 5 | D0 | DIN 6 | SENSE / BAND C | 1 k in series; firmware holds it low = "tuner present", floats it in LAMP mode |
+| GND | GND | DIN 3, bridge shield | ground | |
 
 Do not connect DIN pin 1 (+13.5 V) to anything. The Teensy 2.0 has no
 regulator: power it from USB only.
@@ -66,8 +67,9 @@ echo 'emu result fail'> logs/cmd      # next tune answers A1 A2
 tail -f logs/session.log
 ```
 
-Emulator commands (send with `emu ...`): `?`, `s a0 a1` (raw bytes to the
-radio), `auto 0|1`, `boot [0|1]`, `a0 <ms>`, `a1 <ms>`, `tune <ms>`,
+Emulator commands (send with `emu ...`): `?`, `lamp 0|1` (float DIN 4-7 and
+log band data for menu 16-15 = LAMP), `mode 0|1` (simulate / bridge a real
+AH-4), `reset` (70 ms START pulse), `s a0 a1` (raw bytes to the radio), `auto 0|1`, `boot [0|1]`, `a0 <ms>`, `a1 <ms>`, `tune <ms>`,
 `result ok|fail|b0`, `inhtune 0|1`, `inh 0|1`, `start 0|1`, `clear`,
 `note <text>`.
 
