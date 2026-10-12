@@ -570,3 +570,19 @@ every Teensy reboot or reflash lets SENSE float for a few seconds and the
 radio un-registers the tuner (RESET drops, `AC002;` -> `?`) until the radio
 is power-cycled. For the adapter, SENSE must be a hard strap to GND, never
 a microcontroller pin. On the bench DIN 6 goes back to GND.
+
+### exp33b: mode 2, A1 300 ms after F1
+
+On 160 m the radio sent `F2` (it had refused in mode 1), so the raw-SWR
+check does pass when it looks into the AH-4's bridge. But the AH-4 aborted
+after ~400 ms of KEY on all four bands, including 20 m: the radio keys
+50 ms after `A1`, which with `A1` at 300 ms puts the carrier edge at the
+same moment KEY asserts and the AH-4 checks power. The carrier must be
+established before KEY. Next: `A1` earlier (150 ms, 50 ms) so RF is on
+200-300 ms before KEY while the radio's ~450 ms check window still ends
+with the bridge in line.
+
+Also seen: KEY line bouncing hundreds of times in 100 ms after a failed
+tune on 17 m with 10 W on the antenna: RF pickup on the KEY wire. Added a
+10 ms debounce in firmware; the final adapter needs an RC on KEY too. The
+CAT watchdog recovered the CP2105 twice during the run.
