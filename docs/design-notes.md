@@ -538,3 +538,8 @@ Findings:
 - CAT stopped answering after the 17 m tune and stayed dead (`ID;` no
   reply, USB device still enumerated). RF into the USB/CAT path with the
   real antenna is the prime suspect. The TUN/LIN side kept working.
+
+CAT recovery: the kernel logged `cp210x ttyUSB0: urb stopped: -32` (USB
+endpoint stall) at the 17 m tune. Closing and reopening the port restored
+CAT without touching the radio. `tools/session.py` now has a watchdog that
+reopens the CAT port when a command gets no reply for 3 s.

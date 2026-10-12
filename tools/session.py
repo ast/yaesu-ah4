@@ -85,10 +85,19 @@ def main():
                 line, buf = buf.split(b"\n", 1)
                 log("EMU", line.decode("ascii", "replace").rstrip())
 
+    cat_state = {"sent": 0.0, "got": 0.0}
+
     def cat_reader():
         assert cat is not None
         buf = b""
         while not stop.is_set():
+            # Watchdog: a CAT command with no reply for 3 s means the CP2105
+            # endpoint stalled (RF into USB); reopening the port clears it.
+            if cat_state["sent"] > cat_state["got"] and time.time() - cat_state["sent"] > 3:
+                log("NOTE", "cat watchdog: no reply for 3 s, reopening port")
+                cat_state["sent"] = 0.0
+                reopen(cat, "cat")
+                continue
             try:
                 data = cat.read(256)
             except (serial.SerialException, OSError) as e:
@@ -100,6 +109,8 @@ def main():
             buf += data
             while b";" in buf:
                 msg, buf = buf.split(b";", 1)
+                cat_state["got"] = time.time()
+                cat_state["sent"] = 0.0
                 log("CAT<", msg.decode("ascii", "replace") + ";")
 
     threads = []
@@ -126,6 +137,8 @@ def main():
                 try:
                     if verb == "cat" and cat:
                         cat.write(rest.encode("ascii"))
+                        if not cat_state["sent"]:
+                            cat_state["sent"] = time.time()
                         log("CAT>", rest)
                     elif verb == "emu" and emu:
                         emu.write((rest + "\n").encode("ascii"))
