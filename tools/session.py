@@ -23,6 +23,7 @@ Log line format:  <unix time>  <SRC>  <text>
 
 import argparse
 import os
+import stat
 import threading
 import time
 
@@ -33,13 +34,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emu", help="Teensy USB serial port")
     ap.add_argument("--cat", help="FT-891 CAT port (CP210x enhanced port)")
-    ap.add_argument("--cat-baud", type=int, default=38400,
-                    help="menu 05-06 CAT RATE; 38400 recommended")
+    ap.add_argument("--cat-baud", type=int, default=4800,
+                    help="menu 05-06 CAT RATE (FT-891 default 4800)")
     ap.add_argument("--log", default="logs/session.log")
     ap.add_argument("--fifo", default="logs/cmd")
     args = ap.parse_args()
 
     os.makedirs(os.path.dirname(args.log), exist_ok=True)
+    if os.path.exists(args.fifo) and not stat.S_ISFIFO(os.stat(args.fifo).st_mode):
+        os.remove(args.fifo)          # a stray regular file would be re-read forever
     if not os.path.exists(args.fifo):
         os.mkfifo(args.fifo)
 
@@ -59,6 +62,7 @@ def main():
 
     def reopen(port, name):
         """Block until the port can be opened again (USB re-enumeration)."""
+        cat_state["tx_since"] = 0.0
         while not stop.is_set():
             try:
                 port.close()
@@ -86,26 +90,36 @@ def main():
                 text = line.decode("ascii", "replace").rstrip()
                 # The radio ignores CAT while it transmits; tell the watchdog.
                 if text.endswith(" TXGND 0"):
-                    cat_state["tx"] = True
+                    cat_state["tx_since"] = time.time()
                 elif text.endswith(" TXGND 1"):
-                    cat_state["tx"] = False
-                    cat_state["sent"] = 0.0
+                    cat_state["tx_since"] = 0.0
                 log("EMU", text)
 
-    cat_state = {"sent": 0.0, "got": 0.0, "tx": False}
+    # CAT watchdog state. The radio ignores CAT while it transmits and many
+    # set commands never reply, so the watchdog probes with "ID;" when the
+    # port has been quiet, rather than timing arbitrary writes.
+    cat_state = {"got": time.time(), "probe": 0.0, "tx_since": 0.0}
+    CAT_IDLE_S, CAT_PROBE_S, TX_MAX_S = 15.0, 3.0, 20.0
 
     def cat_reader():
         assert cat is not None
         buf = b""
         while not stop.is_set():
-            # Watchdog: a CAT command with no reply for 3 s means the CP2105
-            # endpoint stalled (RF into USB); reopening the port clears it.
-            if (not cat_state["tx"] and cat_state["sent"] > cat_state["got"]
-                    and time.time() - cat_state["sent"] > 3):
-                log("NOTE", "cat watchdog: no reply for 3 s, reopening port")
-                cat_state["sent"] = 0.0
-                reopen(cat, "cat")
-                continue
+            now = time.time()
+            transmitting = cat_state["tx_since"] and now - cat_state["tx_since"] < TX_MAX_S
+            if not transmitting:
+                if cat_state["probe"] and now - cat_state["probe"] > CAT_PROBE_S:
+                    log("NOTE", "cat watchdog: probe unanswered, reopening port")
+                    cat_state["probe"] = 0.0
+                    cat_state["got"] = now
+                    reopen(cat, "cat")
+                    continue
+                if not cat_state["probe"] and now - cat_state["got"] > CAT_IDLE_S:
+                    try:
+                        cat.write(b"ID;")
+                        cat_state["probe"] = now
+                    except (serial.SerialException, OSError):
+                        pass
             try:
                 data = cat.read(256)
             except (serial.SerialException, OSError) as e:
@@ -118,7 +132,7 @@ def main():
             while b";" in buf:
                 msg, buf = buf.split(b";", 1)
                 cat_state["got"] = time.time()
-                cat_state["sent"] = 0.0
+                cat_state["probe"] = 0.0
                 log("CAT<", msg.decode("ascii", "replace") + ";")
 
     threads = []
@@ -145,8 +159,6 @@ def main():
                 try:
                     if verb == "cat" and cat:
                         cat.write(rest.encode("ascii"))
-                        if not cat_state["sent"]:
-                            cat_state["sent"] = time.time()
                         log("CAT>", rest)
                     elif verb == "emu" and emu:
                         emu.write((rest + "\n").encode("ascii"))
@@ -159,7 +171,10 @@ def main():
                 elif verb == "note":
                     log("NOTE", rest)
                 elif verb == "sleep":
-                    time.sleep(float(rest))
+                    try:
+                        time.sleep(float(rest))
+                    except ValueError:
+                        log("NOTE", f"bad sleep value: {rest!r}")
                 elif verb == "quit":
                     stop.set()
                     break

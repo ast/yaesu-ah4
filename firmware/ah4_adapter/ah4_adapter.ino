@@ -200,6 +200,7 @@ static uint32_t   cycleKeyAt  = 0;      // when KEY asserted
 static uint32_t   cycleF2At   = 0;      // when F2 arrived (0 = not yet)
 static bool       resetSendsA1 = false; // RESET_PULSE triggered by F1 (classic mode): answer A1 after it
 static TuneResult parkedResult = RES_NONE; // result finished before F2 arrived (startOnF1)
+static bool       keyArmed     = false;  // KEY has been seen released since the cycle began
 
 static void ahEnter(Ah4State st) {
   ahState = st;
@@ -212,14 +213,17 @@ static void ahEnter(Ah4State st) {
 static void ah4Abort() {
   ah4Start(false);
   txInh(0);
+  resetSendsA1 = false;
   if (ahState != AH_IDLE) ahEnter(AH_IDLE);
 }
+
 
 static void ah4BeginCycle() {
   cycleStart = millis();
   cycleKeyAt = 0;
   cycleF2At = 0;
   parkedResult = RES_NONE;
+  keyArmed = !keyAsserted;              // a KEY still low from the previous cycle does not count
   ah4Start(true);
   ahEnter(AH_WAIT_KEY);
 }
@@ -253,6 +257,11 @@ static void ah4Report(TuneResult res) {
   parkedResult = RES_NONE;
 }
 
+static void ah4Finish(TuneResult res) {
+  ahEnter(AH_IDLE);
+  ah4Report(res);
+}
+
 static void serviceAh4() {
   if (ahState == AH_IDLE) return;
   uint32_t now = millis();
@@ -271,15 +280,15 @@ static void serviceAh4() {
       break;
 
     case AH_WAIT_KEY:
-      if (keyAsserted) {
+      if (!keyAsserted) keyArmed = true;
+      if (keyAsserted && keyArmed) {
         cycleKeyAt = now;
         txInh(0);                       // classic mode: RF may reach the AH-4 now
         ahEnter(AH_KEYED);
       } else if (inState >= AH_KEY_TIMEOUT) {
         ah4Start(false);
         txInh(0);
-        ahEnter(AH_IDLE);
-        ah4Report(RES_NOKEY);
+        ah4Finish(RES_NOKEY);
       }
       break;
 
@@ -304,15 +313,13 @@ static void serviceAh4() {
       if (keyAsserted) {
         ahEnter(AH_FAIL_WAIT);
       } else if (inState >= AH_SETTLE_MS) {
-        ahEnter(AH_IDLE);
-        ah4Report(RES_OK);
+        ah4Finish(RES_OK);
       }
       break;
 
     case AH_FAIL_WAIT:
       if (!keyAsserted || inState >= AH_FAIL_WAIT_MS) {
-        ahEnter(AH_IDLE);
-        ah4Report(RES_FAIL);
+        ah4Finish(RES_FAIL);
       }
       break;
 
@@ -338,22 +345,25 @@ static void onF1() {
 }
 
 static void onF2() {
-  if (cfg.startOnF1 && ahState != AH_IDLE) {
-    cycleF2At = millis();               // cycle already running, just note it
-    return;
-  }
-  if (cfg.startOnF1 && parkedResult != RES_NONE) {
+  if (cfg.startOnF1) {
     cycleF2At = millis();
-    ah4Report(parkedResult);
-    return;
+    if (parkedResult != RES_NONE) {     // AH-4 already finished: answer now
+      ah4Report(parkedResult);
+      return;
+    }
+    if (ahState != AH_IDLE && ahState != AH_RESET_PULSE) {
+      return;                           // cycle running, result follows when it ends
+    }
   }
-  // Classic: start now, keep RF off the AH-4 until it has booted and keyed.
+  // Classic sequence (also the fallback when no cycle is running): start now
+  // and keep RF off the AH-4 until it has booted and keyed.
   ah4Abort();
   txInh(2);
   ah4BeginCycle();
   cycleF2At = cycleStart;
 }
 
+// Called with A0 already on the wire (see serviceRadioRx).
 static void onCommand(const uint8_t *f) {
   uint8_t op = f[1];
   logTs();
@@ -379,8 +389,6 @@ static void onCommand(const uint8_t *f) {
   }
   Serial.println();
 
-  clearPending();
-  sendToRadio(0xA0);                    // always, at once: after F2 the radio allows ~50 ms
   switch (op) {
     case 0xF1: onF1(); break;
     case 0xF2: onF2(); break;
@@ -397,6 +405,20 @@ static void serviceRadioRx() {
   while (Serial1.available()) {
     uint8_t b = Serial1.read();
     uint32_t now = micros();
+
+    if (b == 0xFF) frameLen = 0;
+    bool complete = false;
+    if (frameLen < 4) {
+      frame[frameLen++] = b;
+      complete = (frameLen == 4);
+    }
+    if (complete) {
+      // Acknowledge before any USB logging: after F2 the radio allows ~50 ms,
+      // and a stalled host could block Serial.print for longer than that.
+      clearPending();
+      Serial1.write(0xA0);
+    }
+
     logTs();
     Serial.print(F("RX "));
     logHex(b);
@@ -404,13 +426,11 @@ static void serviceRadioRx() {
     Serial.println(now - lastRxUs);
     lastRxUs = now;
 
-    if (b == 0xFF) frameLen = 0;
-    if (frameLen < 4) {
-      frame[frameLen++] = b;
-      if (frameLen == 4) {
-        onCommand(frame);
-        frameLen = 0;
-      }
+    if (complete) {
+      logTs();
+      Serial.println(F("TX A0"));
+      onCommand(frame);
+      frameLen = 0;
     }
   }
 }
