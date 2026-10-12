@@ -87,6 +87,24 @@ Frequency is two BCD bytes giving MHz and 10 kHz digits, truncated:
 14.02894 MHz → `14 02`, 7.1 MHz → `07 10`, 1.85 MHz → `01 85`, 50.1 MHz →
 `50 10`.
 
+#### What the `FF` is for
+
+`FF` at 8N1 is a start bit followed by eight ones and a stop bit: on the
+wire it is a single 208 µs low pulse, the least possible line activity.
+The radio sends it, waits 50 ms, and only then sends the bytes that carry
+information. Together with K1QLN's observation that a real FC-40 responds
+sluggishly or not at all when the gap is missing, the explanation is on
+the tuner side: the FC-40 and FC-50 shut their CPU down between commands
+to keep digital noise out of the receiver (the FC-50 block diagram shows a
+power-down detector, Q1002, feeding the CPU's /PD input). The `FF` edge
+wakes the processor and the 50 ms guard time lets its oscillator and UART
+come up before the bytes it has to decode arrive. So it is a wake-up
+pulse first; because every command starts with it, it also works as a
+frame marker. An implementation that never sleeps needs it only for
+resynchronisation: `FF` means "the next three bytes are a command". The
+radio expects nothing in return for it, and the tuner's own replies carry
+no prefix.
+
 ### 1.4 Commands from the radio
 
 | Bytes | Name | When the radio sends it (measured) |
@@ -112,6 +130,30 @@ Single bytes, no framing:
 
 The radio measures SWR itself during the last part of the carrier, after
 `A1`; it does not rely on the tuner's verdict for its own SWR display.
+
+#### The pattern behind the byte values
+
+The protocol is Yaesu's own; nothing in it matches another manufacturer's
+tuner interface. The values are not arbitrary, though. They follow the same
+idea as MIDI: the high bit separates control from data, and within control
+bytes the high nibble is a group and the low nibble a member of it.
+
+| Range | Role | Seen |
+|---|---|---|
+| `00`..`99` | data: BCD frequency digits and `00` padding; the high bit is never set | all commands |
+| `Ex` | radio: initialisation group | `E0` with `01 00` and `00 01` at power-up, a two-step handshake or query |
+| `Fx` | radio: tuner function group, low nibble = operation | `F0` enable, `F1` disable, `F2` tune |
+| `Ax` | tuner: status group, low nibble = status | `A0` acknowledged, `A1` finished, `A2` failed |
+| `Bx` | tuner: error group | `B0` no carrier |
+| `FF` | wake-up | all ones, the shortest pulse there is, and unmistakable for anything above |
+
+The `A4`, `A8` and `E4` bytes reported once on a noisy line would fit as
+bit flags on top of `A0` (bits 2 and 3) or as corruption; nobody has
+reproduced them. Direction is implied by the group (`E`/`F` from the
+radio, `A`/`B` from the tuner), so there is no address field; the frames
+are fixed at four bytes one way and one byte the other, so there is no
+length field; and the link is a short point-to-point cable, so there is no
+checksum. A receiver can resynchronise on any byte with the high bit set.
 
 ### 1.6 Tune sequence and timing
 
