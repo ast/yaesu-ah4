@@ -5,8 +5,10 @@ Yaesu FT-891: press TUNE on the radio, the AH-4 tunes, the radio shows the
 result. The radio believes it is talking to a Yaesu FC-40 on its TUN/LIN
 jack; the adapter speaks that protocol and drives the AH-4's START/KEY lines.
 
-Status: working on the bench with a real antenna (2026-10-12). Everything
-measured about the radio and the tuner is in `docs/design-notes.md`.
+Status: working on the bench with a real antenna (2026-10-12).
+`docs/protocol.md` is the implementer's reference for both interfaces and
+the bridge (pinouts, framing, every measured timing, state machine, test
+checklist). `docs/design-notes.md` is the lab log it was distilled from.
 
 ## How it works
 

@@ -4,8 +4,9 @@ Adapter that lets an Icom AH-4 automatic antenna tuner work natively with a
 Yaesu FT-891 (and other radios with the FC-40/FC-50 TUN/LIN interface). A
 Teensy 2.0 plugs into the radio's 8-pin mini-DIN TUN/LIN jack, speaks Yaesu's
 4800 8N1 tuner protocol to the radio, and drives the AH-4's START/KEY lines.
-It works; see README.md for wiring and use, `docs/design-notes.md` for every
-measured fact (sections 8-10 are the bench results, section 3 the spec).
+It works; see README.md for wiring and use, `docs/protocol.md` for the
+implementer's reference (both interfaces, timings, state machine), and
+`docs/design-notes.md` for the lab log (sections 8-10 are the bench results).
 
 ## Layout
 
