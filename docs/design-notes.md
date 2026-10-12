@@ -433,3 +433,35 @@ the radio keyed on schedule, sent `F2` 0.5 s after keying, waited for `A1`
 and unkeyed 100 ms after it in every case. RF after release is back at full
 level within one 10 ms sample, no overshoot (5.3 W peak, settling to 5.0 W
 over 100 ms at PC005). So the adapter can gate RF freely during the tune.
+
+## 9. First end-to-end tune with the real AH-4 (2026-10-12, exp26)
+
+Teensy in bridge mode (`mode 1`), AH-4 on START/KEY with a dummy load on its
+antenna terminal, radio at PC010, 14.14 MHz CW.
+
+```
++0 ms     radio  FF F1 00 00
++0        emu    A0, START low (reset pulse)
++70       emu    START high, A1
++100      radio  keys (TX GND low)
++570      radio  FF F2 14 14
++570      emu    A0, TX INH high (RF off), START low
++920      AH-4   KEY low                      (350 ms after START)
++920      emu    TX INH released (RF on)
++1170     emu    START high                   (250 ms after KEY)
++1480     AH-4   KEY high                     (matched, 300 ms hunt)
++1580     emu    A1                           (100 ms settle, no failure blip)
++1680     radio  unkeys. AC reads 001.
+```
+
+Carrier 1.6 s total. The radio accepted the result. Power trace: ~5.4 W
+during the pre-F2 SWR check and during the hunt, 0 W while inhibited.
+(PC was 010; see exp27 for the power question.)
+
+Earlier the same day: changing PC (`PC010;`) while the tuner was idle made
+the radio drop RESET and un-register the tuner (`AC002;` -> `?`), needing a
+power cycle. `mode 1` alone did not. To be re-verified.
+
+Dry run (exp23b) reproduced K9EQ's diagrams exactly: 70 ms START pulse gives
+no KEY activity; a 600 ms START with no carrier gives KEY low at +320 ms and
+then the abort pattern (20 ms high, 200 ms low, high).
