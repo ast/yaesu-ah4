@@ -12,7 +12,7 @@
 //   8  D3 TX1 -> [5] RX D     tuner to radio serial, 5 V TTL, 270 ohm in series
 //   0  B0     <- [2] TX GND   low while radio transmits (internal pull-up)
 //   1  B1     <- [7] RESET    radio pulls low to reset, else floats: internal pull-up (10 k in series)
-//   2  B2     -> [8] TX INH   open drain: INPUT = released, OUTPUT LOW = asserted
+//   2  B2     -> [8] TX INH   ACTIVE HIGH on the FT-891: drive HIGH to cut RF, INPUT = released (radio pulls down)
 //   5  D0     -> [6] SENSE    OUTPUT LOW = "tuner present" (1 k in series); input in LAMP mode (BAND C)
 //   3  B3     -> AH-4 START   via 2N7000 (gate), not used yet
 //   4  B7     <- AH-4 KEY     10 k pull-up to 5 V, not used yet
@@ -67,7 +67,8 @@ struct Settings {
   uint16_t a1Delay     = 800;    // ms after A0 before A1 (non-tune commands)
   uint16_t tuneTime    = 3000;   // ms after A0 before A1 for F2 (simulated hunt)
   uint8_t  tuneResult  = 0;      // 0 = ok (A1), 1 = fail (A1 A2), 2 = no carrier (B0 .. A1)
-  bool     inhDuringTune = false;// hold TX INH low from F2 until "inh 0" or tuneTime/2
+  bool     inhDuringTune = false;// drive TX INH HIGH (active high!) at F2 for inhMs
+  uint16_t inhMs       = 1000;   // how long to inhibit after F2
   uint8_t  mode        = 0;      // 0 = simulate replies, 1 = bridge to a real AH-4 on START/KEY
   uint8_t  pwrMode     = 1;      // 0 = off, 1 = while TX GND low, 2 = always
   uint16_t pwrPeriod   = 10;     // ms between PWR samples
@@ -299,7 +300,7 @@ static void onCommand(const uint8_t *f) {
 
   uint32_t t0 = millis() + cfg.a0Delay;
   if (op == 0xF2) {
-    if (cfg.inhDuringTune) txInh(true);
+    if (cfg.inhDuringTune) { txInh(2); inhReleaseAt = millis() + cfg.inhMs; }
     switch (cfg.tuneResult) {
       case 0:
         schedule(t0, 0xA0);
@@ -315,10 +316,6 @@ static void onCommand(const uint8_t *f) {
         schedule(t0 + 100, 0xB0);
         schedule(t0 + 800, 0xA1);
         break;
-    }
-    if (cfg.inhDuringTune) {
-      // release half way, see what the radio does
-      // (handled in loop via inhReleaseAt)
     }
   } else {
     schedule(t0, 0xA0);
@@ -406,6 +403,7 @@ static void serviceLines() {
 
 // ---------------------------------------------------------------- power
 static uint32_t lastPwrMs = 0;
+static uint32_t inhReleaseAt = 0;   // 0 = no auto release pending
 
 static float adcVolts(uint8_t pin) {
   (void)analogRead(pin);                // settle mux after channel change
@@ -415,6 +413,13 @@ static float voltsToWatts(float v) {
   if (v < 0.02f) return 0;          // below the detector knee: call it zero
   float s = v / calK + calC;
   return s > 0 ? s * s : 0;
+}
+
+static void serviceInh() {
+  if (inhReleaseAt && (int32_t)(millis() - inhReleaseAt) >= 0) {
+    inhReleaseAt = 0;
+    txInh(0);
+  }
 }
 
 static void servicePower() {
@@ -471,6 +476,8 @@ static void printStatus() {
   Serial.print(cfg.tuneResult);
   Serial.print(F(" inhtune="));
   Serial.print(cfg.inhDuringTune);
+  Serial.print(F("/"));
+  Serial.print(cfg.inhMs);
   Serial.print(F(" pwr="));
   Serial.print(cfg.pwrMode);
   Serial.print(F("/"));
@@ -525,7 +532,11 @@ static void handleHostLine(char *line) {
     else cfg.tuneResult = atoi(arg);
     printStatus();
   } else if (!strcmp(cmd, "inhtune") && arg) {
-    cfg.inhDuringTune = atoi(arg); printStatus();
+    // inhtune <0|1> [ms]
+    cfg.inhDuringTune = atoi(arg);
+    char *ms = strtok(nullptr, " \r\n");
+    if (ms) cfg.inhMs = atoi(ms);
+    printStatus();
   } else if (!strcmp(cmd, "inh") && arg) {
     txInh((uint8_t)atoi(arg));
   } else if (!strcmp(cmd, "start") && arg) {
@@ -630,6 +641,7 @@ void loop() {
   serviceLines();
   servicePending();
   serviceAh4();
+  serviceInh();
   servicePower();
   serviceHost();
 }

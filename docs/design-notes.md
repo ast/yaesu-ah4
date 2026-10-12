@@ -29,8 +29,9 @@ technical supplement page 6.
 FC-50 interface circuit (CNTL unit, J1002): every line has a 100 uH choke,
 270 ohm series resistor and 1 nF to ground. DATA IN, TX GND and RESET have
 47 k pull-ups to +5 V inside the tuner. TX INH is driven by an inverter
-through a Schottky diode, so the tuner can only pull it low (wired-OR). TX
-GND also enters through a Schottky. The cable is straight through.
+through a Schottky diode. Measured on the FT-891 the line is ACTIVE HIGH:
+the radio holds it low, the tuner drives it high to inhibit RF (see
+section 8). TX GND also enters through a Schottky. The cable is straight through.
 
 The radio must have menu 16-15 TUNER SELECT = EXTERNAL, set with the radio
 off and the tuner connected before power-on.
@@ -373,7 +374,7 @@ t=0        radio: FF F1 00 00
 | `F2` after key-on | 440-500 ms |
 | unkey after `A1` | 100-110 ms |
 | cancel (`AC000;` mid-tune) | unkeys within 70 ms, sends `FF F1 00 00`, tuner off. Nothing else |
-| TX INH | ignored in EXTERNAL mode: during a tune (asserted before `F1` or after `F2`) and for CAT PTT (`TX1;` keys with the line low, and pulling it low while keyed does not unkey). Wiring to DIN 8 / Teensy B2 verified by Albin; the line measures 0 V with the Teensy released, so the radio provides no pull-up in this mode |
+| TX INH | ACTIVE HIGH. Idles at 0 V (radio pull-down). Driving it low does nothing. Driving it HIGH cuts the RF output to zero while the radio stays in TX (TX GND low, `TX;` = TX1); RF returns as soon as the line is released. Same in EXTERNAL and LAMP mode. Measured with an FM carrier at PC005 (exp21) |
 | CAT during tune | `AC;` -> `AC002`, `TX;` -> `TX2` |
 
 ### What this means for the adapter
@@ -391,9 +392,10 @@ t=0        radio: FF F1 00 00
 - The AH-4 measures its own carrier window; the radio's 5.7 W / 11 W
   key-on peak settles in 100 ms, long before the AH-4 looks. Tune with the
   radio's PC set to 10 W; the tune carrier follows the PC setting.
-- TX INH cannot be used to sequence the carrier. Do not bother wiring it in
-  the adapter, except perhaps as a safety pull-down when the AH-4 relays
-  are switching (unverified whether the radio honours it outside tuning).
+- TX INH (drive HIGH) cuts RF without ending the TX state, so the adapter
+  can hold RF off from `F2` until the AH-4 has booted and asserted KEY, and
+  again while the AH-4 switches its relays. Whether the radio keeps waiting
+  for `A1` with RF inhibited is tested in exp22.
 - If the AH-4 never asserts KEY, send `B0` then `A1` within a couple of
   seconds; the radio unkeys on `A1`.
 - Cancel from the radio arrives as `F1`: pulse START (reset) and `A1`.
@@ -417,6 +419,7 @@ data, matching the standard Yaesu 4-bit code on the TUN/LIN jack:
 The code updates about 350 ms after the CAT frequency change, with a brief
 intermediate code visible on some transitions.
 
-TX INH in LAMP mode: idles at 0 V, and pulling it low does not stop a CAT
-`TX1;` key-up (TX GND still goes low), nor does pulling it low while keyed
-unkey the radio. Same as EXTERNAL mode. Wiring to DIN 8 verified.
+TX INH in LAMP mode: idles at 0 V; pulling it low does nothing; driving it
+high cuts the RF carrier (FM, 5 W -> 0 W within one 10 ms sample) while TX
+GND stays low, and RF returns on release. Identical in EXTERNAL mode. So the
+FT-891's TX INH is an active-high RF inhibit, not a PTT inhibit.
