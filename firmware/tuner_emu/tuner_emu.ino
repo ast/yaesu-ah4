@@ -39,6 +39,7 @@ static const uint8_t PIN_SENSE = 5;    // Teensy 2.0 D0 -> DIN 6
 static const uint8_t PIN_RX1   = 7;    // D2, DIN 4 (BAND A in LAMP mode)
 static const uint8_t PIN_TX1   = 8;    // D3, DIN 5 (BAND B in LAMP mode)
 static bool lampMode = false;
+static uint32_t inhReleaseAt = 0;   // TX INH auto-release time, 0 = none pending
 static const uint8_t PIN_FWD   = A0;   // Teensy 2.0 pin 21
 static const uint8_t PIN_REFL  = A1;   // Teensy 2.0 pin 20
 
@@ -403,7 +404,6 @@ static void serviceLines() {
 
 // ---------------------------------------------------------------- power
 static uint32_t lastPwrMs = 0;
-static uint32_t inhReleaseAt = 0;   // 0 = no auto release pending
 
 static float adcVolts(uint8_t pin) {
   (void)analogRead(pin);                // settle mux after channel change
