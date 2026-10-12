@@ -586,3 +586,27 @@ Also seen: KEY line bouncing hundreds of times in 100 ms after a failed
 tune on 17 m with 10 W on the antenna: RF pickup on the KEY wire. Added a
 10 ms debounce in firmware; the final adapter needs an RC on KEY too. The
 CAT watchdog recovered the CP2105 twice during the run.
+
+### exp34: mode 2 with A1 150 ms and 50 ms after F1
+
+| f1a1 | band | F2 | AH-4 | hunt | radio SWR meter |
+|---|---|---|---|---|---|
+| 150 | 20 m | yes | ok | 0.55 s | |
+| 150 | 160 m 1.85 | yes | **ok** | 3.3 s | 52 |
+| 50 | 20 m | yes | ok | 0.3 s | |
+| 50 | 160 m 1.85 | yes | **ok** | 3.3 s | 52 |
+
+With the carrier on 200-300 ms before KEY the AH-4 is happy, and the
+radio's check still ends looking into the bridge. 160 m, refused outright
+by the radio in mode 1, tunes. Mode 2 with `A1` at 100 ms is now the
+firmware default. Timeline in mode 2 (f1a1 = 100):
+
+```
++0      radio F1          emu: A0, START low
++100    emu A1
++150    radio keys        carrier on, AH-4 still booting (raw SWR visible ~200 ms)
++345    AH-4 KEY low      bridge in line, AH-4 checks power: ok
++595    emu START high
++600    radio F2          emu: A0 (hunt continues; F2 may even arrive before START release)
++KEY high               emu: 100 ms settle, A1 (A2 on failure); radio unkeys 100 ms later
+```

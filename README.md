@@ -6,9 +6,13 @@ the plan.
 
 ## Current stage: working adapter on the bench
 
-`emu mode 1` turns the Teensy into the FT-891 to AH-4 adapter (first full
-tune 2026-10-12). Mode 0 is the FC-40 emulator used to characterise the
-radio. Findings are in `docs/design-notes.md`, sections 8 and 9.
+The Teensy boots as the FT-891 to AH-4 adapter in mode 2: the AH-4 tune
+cycle starts on the radio's `F1`, so the radio's raw-SWR pre-check looks
+into the AH-4's bridge and passes even on antennas the radio would otherwise
+refuse (160 m on a short wire tuned fine this way). `emu mode 1` is the
+classic sequence (tune on `F2`, RF gated with TX INH until the AH-4 keys),
+`emu mode 0` the FC-40 emulator used to characterise the radio. Findings
+are in `docs/design-notes.md`, sections 8 to 10.
 
 ## Protocol bench
 

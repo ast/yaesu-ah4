@@ -70,8 +70,8 @@ struct Settings {
   uint8_t  tuneResult  = 0;      // 0 = ok (A1), 1 = fail (A1 A2), 2 = no carrier (B0 .. A1)
   bool     inhDuringTune = false;// drive TX INH HIGH (active high!) at F2 for inhMs
   uint16_t inhMs       = 1000;   // how long to inhibit after F2
-  uint8_t  mode        = 0;      // 0 = simulate, 1 = AH-4 bridge (tune on F2), 2 = AH-4 bridge, tune starts on F1
-  uint16_t f1A1Delay   = 300;    // mode 2: ms after F1 before A1 (radio keys ~50 ms after A1, KEY comes ~330 ms after START)
+  uint8_t  mode        = 2;      // 0 = simulate, 1 = AH-4 bridge (tune on F2), 2 = AH-4 bridge, tune starts on F1 (default)
+  uint16_t f1A1Delay   = 100;    // mode 2: ms after F1 before A1 (radio keys ~50 ms after A1, KEY comes ~330 ms after START)
   uint8_t  pwrMode     = 1;      // 0 = off, 1 = while TX GND low, 2 = always
   uint16_t pwrPeriod   = 10;     // ms between PWR samples
 } cfg;
@@ -418,7 +418,7 @@ static void serviceRadioRx() {
 }
 
 // ---------------------------------------------------------------- control lines
-static int lastTxGnd = -1, lastReset = -1, lastKey = -1, lastBand = -1;
+static int lastTxGnd = -1, lastReset = -1, lastBand = -1;
 
 static void serviceLines() {
   int v;
